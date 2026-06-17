@@ -1,0 +1,19 @@
+# Python / uv
+Back-End/.venv/
+Back-End/__pycache__/
+Back-End/**/__pycache__/
+Back-End/.mypy_cache/
+Back-End/.ruff_cache/
+Back-End/.pytest_cache/
+
+# Node / Vite
+Front-End/node_modules/
+Front-End/dist/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Env files
+.env
+.env.*

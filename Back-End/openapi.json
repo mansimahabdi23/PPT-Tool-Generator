@@ -1,0 +1,1152 @@
+{
+  "openapi": "3.1.0",
+  "info": {
+    "title": "iMocha AI Presentation Studio",
+    "description": "Backend API for transforming PowerPoint decks into on-brand iMocha presentations.",
+    "version": "0.1.0"
+  },
+  "paths": {
+    "/api/jobs": {
+      "post": {
+        "tags": [
+          "jobs"
+        ],
+        "summary": "Create Job",
+        "description": "POST /api/jobs \u2014 Accept a .pptx upload and return a job ID.\n\nStub: ignores the file content, returns the fixture job ID.",
+        "operationId": "create_job_api_jobs_post",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "multipart/form-data": {
+              "schema": {
+                "$ref": "#/components/schemas/Body_create_job_api_jobs_post"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/JobCreatedResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      },
+      "get": {
+        "tags": [
+          "jobs"
+        ],
+        "summary": "List Jobs",
+        "description": "GET /api/jobs \u2014 Return job history.",
+        "operationId": "list_jobs_api_jobs_get",
+        "parameters": [
+          {
+            "name": "page",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "default": 1,
+              "title": "Page"
+            }
+          },
+          {
+            "name": "page_size",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "maximum": 100,
+              "minimum": 1,
+              "default": 20,
+              "title": "Page Size"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/TransformJob"
+                  },
+                  "title": "Response List Jobs Api Jobs Get"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/jobs/{job_id}": {
+      "get": {
+        "tags": [
+          "jobs"
+        ],
+        "summary": "Get Job",
+        "description": "GET /api/jobs/{jobId} \u2014 Return a single job.",
+        "operationId": "get_job_api_jobs__job_id__get",
+        "parameters": [
+          {
+            "name": "job_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Job Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TransformJob"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/jobs/{job_id}/plan": {
+      "get": {
+        "tags": [
+          "jobs"
+        ],
+        "summary": "Get Plan",
+        "description": "GET /api/jobs/{jobId}/plan \u2014 Return the transformation plan.",
+        "operationId": "get_plan_api_jobs__job_id__plan_get",
+        "parameters": [
+          {
+            "name": "job_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Job Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/SlidePlan"
+                  },
+                  "title": "Response Get Plan Api Jobs  Job Id  Plan Get"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/jobs/{job_id}/plan/approve": {
+      "post": {
+        "tags": [
+          "jobs"
+        ],
+        "summary": "Approve Plan",
+        "description": "POST /api/jobs/{jobId}/plan/approve \u2014 Approve the plan and resume the job.\n\nStub: returns the fixture job (already at ``completed`` status).",
+        "operationId": "approve_plan_api_jobs__job_id__plan_approve_post",
+        "parameters": [
+          {
+            "name": "job_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Job Id"
+            }
+          }
+        ],
+        "responses": {
+          "202": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TransformJob"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/jobs/{job_id}/slides/{slide_id}/regenerate": {
+      "post": {
+        "tags": [
+          "jobs"
+        ],
+        "summary": "Regenerate Slide",
+        "description": "POST /api/jobs/{jobId}/slides/{slideId}/regenerate \u2014 Regenerate one slide.",
+        "operationId": "regenerate_slide_api_jobs__job_id__slides__slide_id__regenerate_post",
+        "parameters": [
+          {
+            "name": "job_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Job Id"
+            }
+          },
+          {
+            "name": "slide_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Slide Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TransformedSlide"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/jobs/{job_id}/result": {
+      "get": {
+        "tags": [
+          "jobs"
+        ],
+        "summary": "Get Result",
+        "description": "GET /api/jobs/{jobId}/result \u2014 Return download URLs + compliance metadata.",
+        "operationId": "get_result_api_jobs__job_id__result_get",
+        "parameters": [
+          {
+            "name": "job_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Job Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/JobResult"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/assets": {
+      "get": {
+        "tags": [
+          "assets"
+        ],
+        "summary": "List Assets",
+        "description": "GET /api/assets \u2014 Return the asset library.\n\nStub: query params are accepted (and validated) but ignored.",
+        "operationId": "list_assets_api_assets_get",
+        "parameters": [
+          {
+            "name": "type",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "$ref": "#/components/schemas/AssetType"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Type"
+            }
+          },
+          {
+            "name": "status",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "$ref": "#/components/schemas/AssetStatus"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Status"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/BrandAsset"
+                  },
+                  "title": "Response List Assets Api Assets Get"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "assets"
+        ],
+        "summary": "Create Asset",
+        "description": "POST /api/assets \u2014 Upload a new brand asset.\n\nStub: ignores the upload, returns the first fixture asset.",
+        "operationId": "create_asset_api_assets_post",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "multipart/form-data": {
+              "schema": {
+                "$ref": "#/components/schemas/Body_create_asset_api_assets_post"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BrandAsset"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/assets/{asset_id}": {
+      "patch": {
+        "tags": [
+          "assets"
+        ],
+        "summary": "Update Asset",
+        "description": "PATCH /api/assets/{id} \u2014 Partial update of a brand asset.\n\nStub: ignores the body, returns the first fixture asset.",
+        "operationId": "update_asset_api_assets__asset_id__patch",
+        "parameters": [
+          {
+            "name": "asset_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Asset Id"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/BrandAssetUpdate"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BrandAsset"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/health": {
+      "get": {
+        "tags": [
+          "meta"
+        ],
+        "summary": "Health",
+        "operationId": "health_health_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": {
+                    "type": "string"
+                  },
+                  "type": "object",
+                  "title": "Response Health Health Get"
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  },
+  "components": {
+    "schemas": {
+      "ApprovalState": {
+        "type": "string",
+        "enum": [
+          "pending",
+          "approved",
+          "regenerating",
+          "flagged"
+        ],
+        "title": "ApprovalState"
+      },
+      "AssetSlot": {
+        "type": "string",
+        "enum": [
+          "cover",
+          "content",
+          "divider",
+          "closing"
+        ],
+        "title": "AssetSlot",
+        "description": "Slot values for BrandAsset (not a standalone TS type but part of the BrandAsset interface)."
+      },
+      "AssetStatus": {
+        "type": "string",
+        "enum": [
+          "approved",
+          "pending",
+          "deprecated"
+        ],
+        "title": "AssetStatus"
+      },
+      "AssetType": {
+        "type": "string",
+        "enum": [
+          "template",
+          "icon",
+          "infographic",
+          "logo",
+          "chart"
+        ],
+        "title": "AssetType"
+      },
+      "Body_create_asset_api_assets_post": {
+        "properties": {
+          "file": {
+            "type": "string",
+            "contentMediaType": "application/octet-stream",
+            "title": "File"
+          },
+          "name": {
+            "type": "string",
+            "title": "Name"
+          },
+          "type": {
+            "$ref": "#/components/schemas/AssetType"
+          },
+          "slot": {
+            "type": "string",
+            "title": "Slot"
+          },
+          "version": {
+            "type": "string",
+            "title": "Version"
+          },
+          "owner": {
+            "type": "string",
+            "title": "Owner"
+          },
+          "tags": {
+            "type": "string",
+            "title": "Tags",
+            "default": ""
+          },
+          "thumbnail_url": {
+            "type": "string",
+            "title": "Thumbnail Url",
+            "default": ""
+          }
+        },
+        "type": "object",
+        "required": [
+          "file",
+          "name",
+          "type",
+          "slot",
+          "version",
+          "owner"
+        ],
+        "title": "Body_create_asset_api_assets_post"
+      },
+      "Body_create_job_api_jobs_post": {
+        "properties": {
+          "file": {
+            "type": "string",
+            "contentMediaType": "application/octet-stream",
+            "title": "File"
+          },
+          "allow_restructure": {
+            "type": "boolean",
+            "title": "Allow Restructure",
+            "default": false
+          }
+        },
+        "type": "object",
+        "required": [
+          "file"
+        ],
+        "title": "Body_create_job_api_jobs_post"
+      },
+      "BrandAsset": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "title": "Id"
+          },
+          "name": {
+            "type": "string",
+            "title": "Name"
+          },
+          "type": {
+            "$ref": "#/components/schemas/AssetType"
+          },
+          "slot": {
+            "$ref": "#/components/schemas/AssetSlot"
+          },
+          "status": {
+            "$ref": "#/components/schemas/AssetStatus"
+          },
+          "version": {
+            "type": "string",
+            "title": "Version"
+          },
+          "owner": {
+            "type": "string",
+            "title": "Owner"
+          },
+          "expiresAt": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Expiresat"
+          },
+          "tags": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Tags"
+          },
+          "thumbnailUrl": {
+            "type": "string",
+            "title": "Thumbnailurl"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "name",
+          "type",
+          "slot",
+          "status",
+          "version",
+          "owner",
+          "tags",
+          "thumbnailUrl"
+        ],
+        "title": "BrandAsset",
+        "description": "Mirrors ``interface BrandAsset`` in types.ts."
+      },
+      "BrandAssetUpdate": {
+        "properties": {
+          "name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Name"
+          },
+          "type": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/AssetType"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "slot": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/AssetSlot"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "status": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/AssetStatus"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "version": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Version"
+          },
+          "owner": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Owner"
+          },
+          "expiresAt": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Expiresat"
+          },
+          "tags": {
+            "anyOf": [
+              {
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Tags"
+          },
+          "thumbnailUrl": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Thumbnailurl"
+          }
+        },
+        "type": "object",
+        "title": "BrandAssetUpdate",
+        "description": "Partial update body for ``PATCH /api/assets/{id}``."
+      },
+      "HTTPValidationError": {
+        "properties": {
+          "detail": {
+            "items": {
+              "$ref": "#/components/schemas/ValidationError"
+            },
+            "type": "array",
+            "title": "Detail"
+          }
+        },
+        "type": "object",
+        "title": "HTTPValidationError"
+      },
+      "JobCreatedResponse": {
+        "properties": {
+          "jobId": {
+            "type": "string",
+            "title": "Jobid"
+          }
+        },
+        "type": "object",
+        "required": [
+          "jobId"
+        ],
+        "title": "JobCreatedResponse",
+        "description": "Response for ``POST /api/jobs``. Frontend reads ``{ jobId }``."
+      },
+      "JobResult": {
+        "properties": {
+          "pptxUrl": {
+            "type": "string",
+            "title": "Pptxurl"
+          },
+          "pdfUrl": {
+            "type": "string",
+            "title": "Pdfurl"
+          },
+          "brandCompliancePassed": {
+            "type": "boolean",
+            "title": "Brandcompliancepassed"
+          },
+          "contentFidelity": {
+            "type": "string",
+            "title": "Contentfidelity"
+          },
+          "processingSeconds": {
+            "type": "integer",
+            "title": "Processingseconds"
+          }
+        },
+        "type": "object",
+        "required": [
+          "pptxUrl",
+          "pdfUrl",
+          "brandCompliancePassed",
+          "contentFidelity",
+          "processingSeconds"
+        ],
+        "title": "JobResult",
+        "description": "Response for ``GET /api/jobs/{jobId}/result`` (\u00a78).\n\nNote: the frontend API client currently reads only ``pptxUrl`` and ``pdfUrl``;\nthe extra fields are specified in docs/architecture.md \u00a78 and are included here\nper the docs-win rule in CLAUDE.md. The client silently ignores the extras."
+      },
+      "JobStatus": {
+        "type": "string",
+        "enum": [
+          "parsing",
+          "analyzing",
+          "plan_ready",
+          "retrieving",
+          "composing",
+          "validating",
+          "exporting",
+          "completed",
+          "failed"
+        ],
+        "title": "JobStatus"
+      },
+      "SlidePlan": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "title": "Id"
+          },
+          "index": {
+            "type": "integer",
+            "title": "Index"
+          },
+          "slideType": {
+            "$ref": "#/components/schemas/SlideType"
+          },
+          "plannedLayout": {
+            "type": "string",
+            "title": "Plannedlayout"
+          },
+          "assetTypes": {
+            "items": {
+              "$ref": "#/components/schemas/AssetType"
+            },
+            "type": "array",
+            "title": "Assettypes"
+          },
+          "restructureNote": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Restructurenote"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "index",
+          "slideType",
+          "plannedLayout",
+          "assetTypes"
+        ],
+        "title": "SlidePlan",
+        "description": "Mirrors ``interface SlidePlan`` in types.ts."
+      },
+      "SlideType": {
+        "type": "string",
+        "enum": [
+          "title",
+          "agenda",
+          "content",
+          "data",
+          "divider",
+          "closing"
+        ],
+        "title": "SlideType"
+      },
+      "TransformJob": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "title": "Id"
+          },
+          "deckName": {
+            "type": "string",
+            "title": "Deckname"
+          },
+          "status": {
+            "$ref": "#/components/schemas/JobStatus"
+          },
+          "allowRestructure": {
+            "type": "boolean",
+            "title": "Allowrestructure"
+          },
+          "slideCount": {
+            "type": "integer",
+            "title": "Slidecount"
+          },
+          "createdAt": {
+            "type": "string",
+            "title": "Createdat"
+          },
+          "plan": {
+            "anyOf": [
+              {
+                "items": {
+                  "$ref": "#/components/schemas/SlidePlan"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Plan"
+          },
+          "slides": {
+            "anyOf": [
+              {
+                "items": {
+                  "$ref": "#/components/schemas/TransformedSlide"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Slides"
+          },
+          "brandCompliancePassed": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Brandcompliancepassed"
+          },
+          "contentFidelity": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Contentfidelity"
+          },
+          "processingSeconds": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Processingseconds"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "deckName",
+          "status",
+          "allowRestructure",
+          "slideCount",
+          "createdAt"
+        ],
+        "title": "TransformJob",
+        "description": "Mirrors ``interface TransformJob`` in types.ts."
+      },
+      "TransformedSlide": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "title": "Id"
+          },
+          "index": {
+            "type": "integer",
+            "title": "Index"
+          },
+          "originalPreviewUrl": {
+            "type": "string",
+            "title": "Originalpreviewurl"
+          },
+          "transformedPreviewUrl": {
+            "type": "string",
+            "title": "Transformedpreviewurl"
+          },
+          "contentUnchanged": {
+            "type": "boolean",
+            "title": "Contentunchanged"
+          },
+          "restructureNote": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Restructurenote"
+          },
+          "changeChips": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Changechips"
+          },
+          "approval": {
+            "$ref": "#/components/schemas/ApprovalState"
+          },
+          "retryCount": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Retrycount"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "index",
+          "originalPreviewUrl",
+          "transformedPreviewUrl",
+          "contentUnchanged",
+          "changeChips",
+          "approval"
+        ],
+        "title": "TransformedSlide",
+        "description": "Mirrors ``interface TransformedSlide`` in types.ts."
+      },
+      "ValidationError": {
+        "properties": {
+          "loc": {
+            "items": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "integer"
+                }
+              ]
+            },
+            "type": "array",
+            "title": "Location"
+          },
+          "msg": {
+            "type": "string",
+            "title": "Message"
+          },
+          "type": {
+            "type": "string",
+            "title": "Error Type"
+          },
+          "input": {
+            "title": "Input"
+          },
+          "ctx": {
+            "type": "object",
+            "title": "Context"
+          }
+        },
+        "type": "object",
+        "required": [
+          "loc",
+          "msg",
+          "type"
+        ],
+        "title": "ValidationError"
+      }
+    }
+  }
+}
