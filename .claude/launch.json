@@ -1,0 +1,11 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "iMocha PPT Transformer",
+      "runtimeExecutable": "python",
+      "runtimeArgs": ["-m", "http.server", "3456", "--directory", "C:\\Users\\User\\Desktop\\iMocha\\PPT Tool Generator"],
+      "port": 3456
+    }
+  ]
+}
