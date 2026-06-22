@@ -53,6 +53,7 @@ flowchart TD
 | Embed assets + build the index | **Code** | Mechanical. |
 | Decide *what* asset a slide needs | **AI** | Part of planning. |
 | Retrieve + rank assets | **Code** | Filter then vector rank; also how "approved-only" is guaranteed. |
+| Insert/merge an infographic PPTX fragment | **Code** | deterministic; only CHOOSING which fragment fits is part of AI planning. |
 | Decide chart type + insight title | **AI** | Interpretation of the data. |
 | Render chart / place objects / apply template | **Code** | Construction from the plan. |
 | Brand compliance (fonts/colors/logo/gradients) | **Code** | Exact rules + a guarantee → must be code. |
@@ -69,6 +70,9 @@ flowchart TD
   (target layout + asset needs per slide; restructure notes if enabled).
 - **Compose agent** — takes the approved plan + retrieved assets and builds slides from
   iMocha template primitives. Constrained so it can only emit approved fonts/colors/assets.
+  When a slide needs an infographic, the composer inserts it by merging the fragment's
+  native shapes into the target slide (Aspose shape/slide clone), preserving editability
+  and re-theming to the template — it never places a raster image for infographics.
 - *(Optional)* **Narrative optimization** — reorder/merge/split for flow. Opt-in, surfaced
   in the plan review, reversible.
 
@@ -97,7 +101,7 @@ Rules: max **2** regenerations per slide then flag (no unbounded loops); slides
 compose/validate in parallel where possible; parsed models + asset embeddings are
 cached; a deck may complete with specific slides flagged (partial success).
 
-## 7. Data models (the contract — Pydantic must mirror `/frontend/src/types.ts`)
+## 7. Data models (the contract — Pydantic must mirror `Front-End/src/types.ts`)
 
 ```ts
 type JobStatus =
@@ -166,20 +170,10 @@ dimensions`, `max items` (e.g. a 5-step graphic only fits 5 points), `color vari
 survivors. Only approved assets are ever indexed, so "approved-only" is structural.
 Deprecated/expired assets are non-retrievable; references resolve to current versions.
 
-Infographics are NOT generated images. Each infographic is a prebuilt, on-brand,
-editable PPTX fragment that I place in assets/infographics/. The system never
-generates infographic visuals with an LLM.
-
-Apply these changes:
-- §9 (Asset library): note that infographic assets are .pptx fragments with metadata
-  (slot, semantic tags, max-items, dimensions, approval/version). Retrieval selects
-  the best-fit prebuilt fragment; it never synthesizes one.
-- §5 / Compose: the composer INSERTS the selected infographic by merging its native
-  shapes into the target slide (Aspose slide/shape clone), preserving editability and
-  brand. It does not render or place a raster image for infographics.
-- §4 (LLM vs deterministic): inserting an infographic is deterministic; only CHOOSING
-  which fragment fits is part of the AI planning step.
-Keep it concise. Show me the diff before saving
+Infographics are prebuilt, on-brand, editable PPTX fragments in `assets/infographics/`
+— never LLM-generated. Each carries metadata: slot, semantic tags, max-items,
+dimensions, approval status, and version. Retrieval selects the best-fit prebuilt
+fragment; it never synthesizes one.
 
 ## 10. Content preservation (definition)
 

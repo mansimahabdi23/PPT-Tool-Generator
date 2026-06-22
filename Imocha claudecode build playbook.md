@@ -20,7 +20,7 @@ Create a CLAUDE.md at the repo root with these contents. Keep it concise.
 ## What this is
 A FastAPI backend that transforms an uploaded PowerPoint into an on-brand,
 fully editable iMocha deck (PPTX + PDF). The React frontend already exists in
-/frontend and talks to us via a typed API client (see /docs/architecture.md).
+/Front-End and talks to us via a typed API client (see /docs/architecture.md).
 
 ## Architecture rules (non-negotiable)
 - LLM only for judgment (understand/classify/plan, compose). Everything with one
@@ -111,12 +111,23 @@ tests, then commit.
 ### Step 2 — Build the iMocha master template
 **Plan:**
 ```
-[plan mode] Read /docs/architecture.md (brand tokens) and look at the slide
-mockups in /docs/slide-previews. Goal: create a reusable iMocha PPTX template
-(theme: fonts Playfair Display titles / Poppins body, the brand color palette,
-gradient rules) with named layouts for each slide type: title, agenda, content,
-data, divider, closing. Plan how the template is stored and loaded by Aspose, and
-a script that emits one sample slide per layout so I can eyeball it. Give me the plan.
+Read docs/architecture.md (brand tokens are in §11; infographics decision in §9) and
+look at the real brand assets in assets/ — assets/templates/, assets/logo/, the logos
+(logo.png, logo_white.png, logo_footer.png, cover_bg.jpg), and assets/mockups/.
+
+Goal: create a reusable iMocha PPTX master template with named layouts for each slide
+type: title, agenda, content, data, divider, closing. Theme it per §11 — Playfair
+Display titles, Poppins body, the brand color palette, and the allowed gradient rules.
+
+Build it from the existing assets — do NOT invent new logos, colors, or fonts.
+
+Infographics are prebuilt editable PPTX fragments in assets/infographics/ (not images),
+so the content/data layouts must define a region the fragments can be merged into — not
+an image placeholder.
+
+Plan: how the template is stored in Back-End/ and loaded by Aspose, the layout
+definitions, and a script that emits one sample slide per layout so I can eyeball it.
+Ask any questions first, then give me the plan. Don't write code yet..
 ```
 **Implement:**
 ```
@@ -201,7 +212,7 @@ Do this before feeding it any real deck — uploaded decks contain confidential 
 - When a fix is mediocre, don't patch it — say "knowing what you know now, scrap this and implement the clean version."
 - Before merging anything important: "diff this branch against main, then grill me on these changes and prove the validators still pass — don't open a PR until I'm satisfied."
 
----
+--- 
 
 ## 4. What to hand Claude Code on day one
 1. The repo with `/frontend` in it.
