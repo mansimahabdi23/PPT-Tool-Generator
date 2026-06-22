@@ -123,6 +123,10 @@ a script that emits one sample slide per layout so I can eyeball it. Give me the
 Implement it. Produce a sample.pptx with one slide per layout. Export it to PNGs
 and show them to me. Commit the template and the generation script.
 ```
+...Note: infographics are prebuilt editable PPTX fragments in assets/infographics/
+(not images) — the template must define a content layout/region they can be merged
+into, not an image placeholder.
+
 *Done when:* sample slides open in PowerPoint, on-brand, with editable elements.
 
 ### Step 3 — Walking skeleton (the de-risking gate)

@@ -166,6 +166,21 @@ dimensions`, `max items` (e.g. a 5-step graphic only fits 5 points), `color vari
 survivors. Only approved assets are ever indexed, so "approved-only" is structural.
 Deprecated/expired assets are non-retrievable; references resolve to current versions.
 
+Infographics are NOT generated images. Each infographic is a prebuilt, on-brand,
+editable PPTX fragment that I place in assets/infographics/. The system never
+generates infographic visuals with an LLM.
+
+Apply these changes:
+- §9 (Asset library): note that infographic assets are .pptx fragments with metadata
+  (slot, semantic tags, max-items, dimensions, approval/version). Retrieval selects
+  the best-fit prebuilt fragment; it never synthesizes one.
+- §5 / Compose: the composer INSERTS the selected infographic by merging its native
+  shapes into the target slide (Aspose slide/shape clone), preserving editability and
+  brand. It does not render or place a raster image for infographics.
+- §4 (LLM vs deterministic): inserting an infographic is deterministic; only CHOOSING
+  which fragment fits is part of the AI planning step.
+Keep it concise. Show me the diff before saving
+
 ## 10. Content preservation (definition)
 
 **Guaranteed:** claim-level fidelity — every atomic factual claim and number in the
@@ -217,3 +232,4 @@ place into the template → export editable PPTX + PDF, through the real API. Th
 confirms the single highest-risk claim — that Aspose produces faithful, editable
 output (editable text + at least one editable chart). If it can't, stop and resolve
 before proceeding; everything downstream depends on it.
+
