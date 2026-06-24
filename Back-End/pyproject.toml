@@ -16,6 +16,8 @@ dependencies = [
     "pydantic>=2.7",
     "pydantic-settings>=2.3",
     "python-multipart>=0.0.9",
+    "python-pptx>=1.0",   # PPTX builder + XML shape-tree copy (§12)
+    "lxml>=5.0",          # XML manipulation (pulled by python-pptx; used directly)
 ]
 
 
@@ -44,6 +46,14 @@ exclude = ["tests/"]
 [[tool.mypy.overrides]]
 module = "app.*"
 ignore_missing_imports = false
+
+[[tool.mypy.overrides]]
+module = "pptx.*"
+ignore_missing_imports = true
+
+[[tool.mypy.overrides]]
+module = "lxml.*"
+ignore_missing_imports = true
 
 # ---------------------------------------------------------------------------
 # Pytest
