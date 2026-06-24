@@ -36,9 +36,10 @@ Monorepo. Place this file at the repo root and run Claude Code from the repo roo
 - The job state machine PAUSES at `plan_ready` until `/plan/approve` is called.
 
 ## Stack (see docs/architecture.md §12)
-FastAPI · Pydantic v2 · PostgreSQL + pgvector · Aspose.Slides (PPTX backbone;
-python-pptx only for simple ops) · Celery/RQ + Redis · enterprise/zero-retention LLM
-(Azure OpenAI or Bedrock) behind one provider interface. No Supabase.
+FastAPI · Pydantic v2 · PostgreSQL + pgvector · python-pptx (PPTX builder; infographic
+fragment merging via XML-level shape-tree copy) · LibreOffice headless (PDF export +
+slide preview PNG) · Celery/RQ + Redis · enterprise/zero-retention LLM (Azure OpenAI
+or Bedrock) behind one provider interface. No Supabase.
 
 ## How to work
 - Plan before coding on any multi-file change; wait for my approval of the plan.
@@ -47,8 +48,9 @@ python-pptx only for simple ops) · Celery/RQ + Redis · enterprise/zero-retenti
 - Commit each working increment with a clear message.
 - One task per session; tell me when context is getting full so we can clear.
 - Before building the AI agents, prove the walking skeleton (docs §14): a real deck
-  in → editable, on-brand PPTX/PDF out, through the real API. If Aspose can't produce
-  editable output, STOP and tell me before continuing.
+  in → editable, on-brand PPTX/PDF out, through the real API. Gate: python-pptx
+  shape-tree copy produces editable merged PPTX AND LibreOffice headless exports
+  a usable PDF with correct fonts. If either fails, STOP and tell me before continuing.
 
 ## Commands (Back-End/ — adjust once scaffolded)
 - Run server: `cd Back-End && uvicorn app.main:app --reload`

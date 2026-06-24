@@ -47,7 +47,7 @@ flowchart TD
 
 | Step | Type | Notes |
 |---|---|---|
-| Parse PPTX (text, shapes, tables, images, geometry) | **Code** | One correct answer; Aspose / python-pptx. |
+| Parse PPTX (text, shapes, tables, images, geometry) | **Code** | One correct answer; python-pptx. |
 | Understand content, classify slide type, extract claims | **AI (multimodal)** | Interpretation of meaning. |
 | Decide the transformation plan (layout, restructure, asset needs) | **AI** | Design judgment. |
 | Embed assets + build the index | **Code** | Mechanical. |
@@ -71,7 +71,8 @@ flowchart TD
 - **Compose agent** — takes the approved plan + retrieved assets and builds slides from
   iMocha template primitives. Constrained so it can only emit approved fonts/colors/assets.
   When a slide needs an infographic, the composer inserts it by merging the fragment's
-  native shapes into the target slide (Aspose shape/slide clone), preserving editability
+  native shapes into the target slide via XML-level shape-tree copy (python-pptx
+  deep-copy of the fragment's `spTree` into the target slide), preserving editability
   and re-theming to the template — it never places a raster image for infographics.
 - *(Optional)* **Narrative optimization** — reorder/merge/split for flow. Opt-in, surfaced
   in the plan review, reversible.
@@ -206,11 +207,23 @@ Never neon, rainbow, or heavy effects.
 
 ## 12. Tech stack
 
-FastAPI · Pydantic v2 · PostgreSQL + pgvector · **Aspose.Slides** (PPTX fidelity
-backbone; python-pptx only for simple ops — it cannot create SmartArt) · Celery/RQ +
-Redis (async workers) · AWS S3 with lifecycle/retention (uploads, intermediates,
-outputs) · an **enterprise/zero-retention LLM** (Azure OpenAI or Bedrock) behind a
-single provider interface (pin versions; eval before upgrading). No Supabase.
+FastAPI · Pydantic v2 · PostgreSQL + pgvector · **python-pptx** (primary PPTX builder:
+slide construction, template application, shape and text placement) + **XML-level
+shape-tree copy** for infographic fragment merging (deep-copy of source `spTree`
+XML into target slide, no library abstraction) · **LibreOffice headless** (`soffice
+--headless --convert-to pdf/png`) for PDF export and slide preview image rendering ·
+Celery/RQ + Redis (async workers) · AWS S3 with lifecycle/retention (uploads,
+intermediates, outputs) · an **enterprise/zero-retention LLM** (Azure OpenAI or
+Bedrock) behind a single provider interface (pin versions; eval before upgrading).
+No Supabase.
+
+> **Capability trade-offs vs Aspose.Slides:** python-pptx cannot create native
+> SmartArt (not a concern — all infographics come from prebuilt PPTX fragments).
+> LibreOffice headless PDF export requires Playfair Display and Poppins to be
+> installed system-wide on the server; missing fonts cause substitution and visual
+> regression — font installation must be part of the deployment. LibreOffice
+> round-trips complex PPTX (animations, 3-D effects, embedded video) with lower
+> fidelity than Aspose; those features are out of scope for this product.
 
 ## 13. Enterprise requirements (before any real customer data)
 
@@ -222,8 +235,10 @@ customer data — this is not optional.
 ## 14. The de-risking gate
 
 Before building the AI agents, prove a **walking skeleton**: upload → extract text →
-place into the template → export editable PPTX + PDF, through the real API. This
-confirms the single highest-risk claim — that Aspose produces faithful, editable
-output (editable text + at least one editable chart). If it can't, stop and resolve
-before proceeding; everything downstream depends on it.
+place into the template → merge one infographic fragment → export editable PPTX + PDF,
+through the real API. This confirms the two highest-risk claims: (1) python-pptx
+XML-level shape-tree copy produces a faithful, editable merged PPTX (shapes, text,
+and formatting survive the copy); (2) LibreOffice headless converts it to a usable PDF
+with correct fonts (Playfair Display and Poppins render, not substituted). If either
+fails, stop and resolve before proceeding; everything downstream depends on both.
 
