@@ -28,17 +28,20 @@ function ResultPage() {
   const handleDownload = async (kind: "pptx" | "pdf") => {
     setDownloading(kind);
     try {
-      await getResult(jobId);
-      // mock blob download
-      const blob = new Blob([`iMocha mock ${kind.toUpperCase()} for job ${jobId}`], {
-        type: kind === "pptx" ? "application/vnd.openxmlformats-officedocument.presentationml.presentation" : "application/pdf",
-      });
-      const url = URL.createObjectURL(blob);
+      const { pptxUrl, pdfUrl } = await getResult(jobId);
+      const href = kind === "pptx" ? pptxUrl : pdfUrl;
+      if (!href) {
+        toast.error(`${kind.toUpperCase()} is not available for this job`);
+        return;
+      }
+      const baseName = (job?.deckName ?? "presentation").replace(/\.[^.]+$/, "");
       const a = document.createElement("a");
-      a.href = url;
-      a.download = `${(job?.deckName ?? "presentation").replace(/\.[^.]+$/, "")}-imocha.${kind}`;
+      // Relative URLs need the API base prepended so the browser hits the backend
+      a.href = href.startsWith("http") ? href : `http://localhost:8000${href}`;
+      a.download = `${baseName}-imocha.${kind}`;
+      document.body.appendChild(a);
       a.click();
-      URL.revokeObjectURL(url);
+      document.body.removeChild(a);
       toast.success(`${kind.toUpperCase()} downloaded`);
     } finally {
       setDownloading(null);

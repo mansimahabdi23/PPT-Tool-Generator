@@ -27,6 +27,9 @@ import { mockAssets, mockHistory, mockPlan, mockSlides } from './mockData';
 
 const delay = (ms: number) => new Promise<void>((r) => setTimeout(r, ms));
 
+// Base URL for the FastAPI backend. Set VITE_API_URL in Front-End/.env.local to override.
+const API = (import.meta as Record<string, unknown> & { env: Record<string, string> }).env.VITE_API_URL ?? 'http://localhost:8000';
+
 // In-memory mock job store (preserves across navigations within a session).
 type JobRecord = TransformJob & { _startedAt: number; _planApprovedAt?: number };
 const jobs = new Map<string, JobRecord>();
@@ -62,43 +65,19 @@ function computeStatus(rec: JobRecord): JobStatus {
 }
 
 export async function uploadDeck(file: File, allowRestructure: boolean): Promise<{ jobId: string }> {
-  await delay(600);
-  const jobId = `job_${Date.now().toString(36)}`;
-  const rec: JobRecord = {
-    id: jobId,
-    deckName: file.name,
-    status: 'parsing',
-    allowRestructure,
-    slideCount: 8,
-    createdAt: new Date().toISOString(),
-    _startedAt: Date.now(),
-  };
-  jobs.set(jobId, rec);
-  return { jobId };
+  const body = new FormData();
+  body.append('file', file);
+  body.append('allow_restructure', String(allowRestructure));
+  const res = await fetch(`${API}/api/jobs`, { method: 'POST', body });
+  if (!res.ok) throw new Error(`Upload failed: ${res.status}`);
+  const data = await res.json() as { jobId: string };
+  return { jobId: data.jobId };
 }
 
 export async function getJob(jobId: string): Promise<TransformJob> {
-  await delay(220);
-  const rec = jobs.get(jobId);
-  if (!rec) throw new Error('Job not found');
-  rec.status = computeStatus(rec);
-  const out: TransformJob = { ...rec };
-  if (rec.status === 'plan_ready' || rec._planApprovedAt) {
-    out.plan = mockPlan.map((p) => ({
-      ...p,
-      restructureNote: rec.allowRestructure ? p.restructureNote : undefined,
-    }));
-  }
-  if (rec.status === 'completed') {
-    out.slides = mockSlides.map((s) => ({
-      ...s,
-      restructureNote: rec.allowRestructure ? s.restructureNote : undefined,
-    }));
-    out.brandCompliancePassed = true;
-    out.contentFidelity = '100% of claims preserved';
-    out.processingSeconds = Math.round((Date.now() - rec._startedAt) / 1000);
-  }
-  return out;
+  const res = await fetch(`${API}/api/jobs/${jobId}`);
+  if (!res.ok) throw new Error(`getJob failed: ${res.status}`);
+  return res.json() as Promise<TransformJob>;
 }
 
 export async function getPlan(jobId: string): Promise<SlidePlan[]> {
@@ -177,11 +156,10 @@ export async function regenerateSlide(jobId: string, slideId: string): Promise<T
 }
 
 export async function getResult(jobId: string): Promise<{ pptxUrl: string; pdfUrl: string }> {
-  await delay(400);
-  return {
-    pptxUrl: `mock://${jobId}.pptx`,
-    pdfUrl: `mock://${jobId}.pdf`,
-  };
+  const res = await fetch(`${API}/api/jobs/${jobId}/result`);
+  if (!res.ok) throw new Error(`getResult failed: ${res.status}`);
+  const data = await res.json() as { pptxUrl: string; pdfUrl: string };
+  return data;
 }
 
 export async function listAssets(): Promise<BrandAsset[]> {
