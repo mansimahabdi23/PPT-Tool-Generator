@@ -17,7 +17,7 @@ dependencies = [
     "pydantic-settings>=2.3",
     "python-multipart>=0.0.9",
     "python-pptx>=1.0",   # PPTX builder + XML shape-tree copy (§12)
-    "lxml>=5.0",          # XML manipulation (pulled by python-pptx; used directly)
+    "lxml>=5.0",
 ]
 
 
