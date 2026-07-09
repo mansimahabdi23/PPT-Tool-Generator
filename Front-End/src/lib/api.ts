@@ -24,7 +24,7 @@ import type {
 } from '@/types';
 
 // Base URL for the FastAPI backend. Set VITE_API_URL in Front-End/.env.local to override.
-const API = (import.meta as Record<string, unknown> & { env: Record<string, string> }).env.VITE_API_URL ?? 'http://localhost:8000';
+const API = import.meta.env.VITE_API_URL ?? 'http://localhost:8000';
 
 // ---------------------------------------------------------------------------
 // Job lifecycle
