@@ -20,6 +20,7 @@ from pptx import Presentation
 from app.main import app
 from app.services import job_engine as _je
 from app.services.job_engine import InProcessJobEngine
+from app.services.llm_provider import StubProvider, init_provider
 
 # The committed sample deck — a valid 6-slide branded PPTX
 SAMPLE_PPTX = Path(__file__).parent.parent / "out" / "samples_imocha_template.pptx"
@@ -29,6 +30,7 @@ SAMPLE_PPTX = Path(__file__).parent.parent / "out" / "samples_imocha_template.pp
 def _inline_engine() -> None:  # type: ignore[return]
     """Use inline engine so the full pipeline completes synchronously."""
     _je.init_engine(InProcessJobEngine(inline=True))
+    init_provider(StubProvider())
 
 
 @pytest.fixture(scope="module")

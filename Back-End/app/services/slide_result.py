@@ -12,13 +12,14 @@ from __future__ import annotations
 import uuid
 
 from app.models.enums import ApprovalState
-from app.models.job import TransformedSlide
+from app.models.job import SlidePlan, TransformedSlide
 from app.services.content_diff import ContentDiffResult
 from app.services.parser import ParsedDeck
 
 
 def build_slides(
     parsed: ParsedDeck,
+    plan: list[SlidePlan],
     content_result: ContentDiffResult,
     flagged_indices: set[int] | None = None,
     retry_count: int = 0,
@@ -29,16 +30,18 @@ def build_slides(
     ----------
     parsed : ParsedDeck
         The source deck model (one entry per original slide).
+    plan : list[SlidePlan]
+        The approved plan — used to surface restructure_note and to detect
+        when the LLM reclassified a slide (Reclassified chip).
     content_result : ContentDiffResult
         Result of content_diff.diff() — used to determine per-slide claim
-        preservation. We approximate: if a slide's claims are all in the global
-        preserved set we mark it unchanged, otherwise not.
+        preservation. We approximate: if overall content passed, all slides
+        are unchanged.
     flagged_indices : set[int] | None
         Slide indices that the validate gate could not fix after max retries.
         Those slides get ``approval = "flagged"``.
     retry_count : int
-        The number of compose→validate cycles that were executed (0 = passed
-        on first try).
+        Number of compose→validate cycles executed (0 = passed first try).
 
     Returns
     -------
@@ -47,27 +50,32 @@ def build_slides(
 
     Notes
     -----
-    Per-slide claim fidelity is approximated at a global level this increment
-    (the content_diff computes a single blob, not per-slide fidelity).
-    Per-slide analysis is a follow-up when the LLM Compose stage lands.
+    Per-slide claim fidelity is approximated at the global level (the
+    content_diff computes a single blob, not per-slide fidelity). Per-slide
+    analysis is a follow-up when the LLM Compose stage lands.
     """
     flagged = flagged_indices or set()
-    # Approximate: if overall content passed, all slides are unchanged.
     global_content_ok = content_result.passed
+
+    plan_by_index = {p.index: p for p in plan}
 
     slides: list[TransformedSlide] = []
 
     for i, ps in enumerate(parsed.slides):
-        # Derive change chips from what the builder does deterministically.
+        plan_entry = plan_by_index.get(i)
+
         chips: list[str] = ["Rebranded", "Reformatted"]
+
+        # Surface when the LLM reclassified a slide vs the parser heuristic.
+        if plan_entry is not None and plan_entry.slide_type != ps.slide_type:
+            chips.append("Reclassified")
+
         if not global_content_ok:
             chips.append("Content check failed")
 
-        approval: ApprovalState
-        if i in flagged:
-            approval = ApprovalState.flagged
-        else:
-            approval = ApprovalState.pending
+        approval: ApprovalState = (
+            ApprovalState.flagged if i in flagged else ApprovalState.pending
+        )
 
         # Placeholder preview URLs — real LibreOffice rendering is a follow-up.
         placeholder_base = "https://placehold.co/640x360/481aec/ffffff"
@@ -80,7 +88,7 @@ def build_slides(
             original_preview_url=preview_url,
             transformed_preview_url=preview_url,
             content_unchanged=global_content_ok,
-            restructure_note=None,
+            restructure_note=plan_entry.restructure_note if plan_entry else None,
             change_chips=chips,
             approval=approval,
             retry_count=retry_count,

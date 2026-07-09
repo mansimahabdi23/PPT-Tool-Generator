@@ -22,16 +22,18 @@ from pptx import Presentation
 
 from app.services import job_engine as _je
 from app.services.job_engine import InProcessJobEngine
+from app.services.llm_provider import StubProvider, init_provider
 
 
 # ---------------------------------------------------------------------------
-# Module-level engine override — inline mode for deterministic tests
+# Module-level engine + provider override — inline mode for deterministic tests
 # ---------------------------------------------------------------------------
 
 @pytest.fixture(autouse=True, scope="module")
 def _inline_engine() -> None:  # type: ignore[return]
     """Replace the global engine with an inline (synchronous) instance."""
     _je.init_engine(InProcessJobEngine(inline=True))
+    init_provider(StubProvider())
 
 
 # ---------------------------------------------------------------------------

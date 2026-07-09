@@ -21,8 +21,10 @@ import time
 from pathlib import Path
 
 from app.config import settings
-from app.models.enums import JobStatus
+from app.models.enums import AssetSlot, AssetType, JobStatus, SlideType
+from app.models.job import SlidePlan
 from app.services import store as job_store
+from app.services.asset_store import get_store
 from app.services.brand_lint import lint
 from app.services.composer import compose
 from app.services.content_diff import ContentDiffResult, diff
@@ -32,7 +34,86 @@ from app.services.parser import ParsedDeck, parse
 from app.services.planner import build_plan
 from app.services.slide_result import build_slides
 
+# ---------------------------------------------------------------------------
+# Asset-retrieval helpers
+# ---------------------------------------------------------------------------
+
+# Maps each slide type to the asset slot that matches its role in the deck.
+_SLIDE_TYPE_TO_SLOT: dict[SlideType, AssetSlot] = {
+    SlideType.title:   AssetSlot.cover,
+    SlideType.agenda:  AssetSlot.content,
+    SlideType.content: AssetSlot.content,
+    SlideType.data:    AssetSlot.content,
+    SlideType.divider: AssetSlot.divider,
+    SlideType.closing: AssetSlot.closing,
+}
+
+# Asset types that don't have a queryable store record (they come from
+# template primitives or brand files, not the asset library).
+_LIBRARY_ASSET_TYPES: frozenset[AssetType] = frozenset({
+    AssetType.icon,
+    AssetType.infographic,
+    AssetType.chart,
+})
+
 logger = logging.getLogger(__name__)
+
+
+# ---------------------------------------------------------------------------
+# Asset retrieval
+# ---------------------------------------------------------------------------
+
+
+def _retrieve_assets_for_plan(
+    job_id: str,
+    plan: list[SlidePlan],
+    parsed: ParsedDeck,
+) -> None:
+    """Query the asset store for each slide's planned asset types.
+
+    This is the retrieval step described in docs §9: deterministic filter
+    (approved + correct slot) then vector rank on survivors.  The results are
+    logged here; actual shape-tree merging of infographic fragments is a
+    follow-up task (increment 4).
+
+    The store may be empty in offline/test mode — that is fine; the composer
+    falls back to template-only layouts.
+    """
+    store = get_store()
+    slide_index = {ps.index: ps for ps in parsed.slides}
+
+    for plan_entry in plan:
+        slide = slide_index.get(plan_entry.index)
+        query_text = slide.title if slide else ""
+        slot = _SLIDE_TYPE_TO_SLOT.get(plan_entry.slide_type, AssetSlot.content)
+
+        for asset_type in plan_entry.asset_types:
+            if asset_type not in _LIBRARY_ASSET_TYPES:
+                continue  # template/logo come from files, not the asset library
+
+            results = store.retrieve(
+                slot=slot,
+                asset_type=asset_type,
+                query_text=query_text,
+                k=1,
+            )
+            if results:
+                logger.info(
+                    "[%s] Slide %d: retrieved %s (%s, score=%s)",
+                    job_id,
+                    plan_entry.index,
+                    results[0].name,
+                    asset_type.value,
+                    "cosine",
+                )
+            else:
+                logger.debug(
+                    "[%s] Slide %d: no %s assets in store for slot=%s",
+                    job_id,
+                    plan_entry.index,
+                    asset_type.value,
+                    slot.value,
+                )
 
 
 # ---------------------------------------------------------------------------
@@ -145,15 +226,17 @@ def run_segment_b(job_id: str) -> None:
 
         t0 = time.perf_counter()
 
-        # ---- retrieving (asset-retrieval hook; no-op this increment) ----
+        plan = record.plan or []
+
+        # ---- retrieving — look up assets from the library for each slide ----
         job_store.update(job_id, status=JobStatus.retrieving)
-        logger.info("[%s] Segment B: retrieving assets (stub)", job_id)
-        # TODO(increment 3): call asset retrieval with plan to hydrate compose
+        logger.info("[%s] Segment B: retrieving assets for %d slides", job_id, len(plan))
+        _retrieve_assets_for_plan(job_id, plan, parsed)
 
         # ---- composing ----
         job_store.update(job_id, status=JobStatus.composing)
         logger.info("[%s] Segment B: composing", job_id)
-        prs = compose(parsed, settings.assets_root)
+        prs = compose(parsed, plan, settings.assets_root)
 
         # ---- validating (with bounded retry) ----
         job_store.update(job_id, status=JobStatus.validating)
@@ -173,10 +256,10 @@ def run_segment_b(job_id: str) -> None:
                     "[%s] Validate gate failed (attempt %d/%d); recomposing",
                     job_id, attempt + 1, settings.max_regenerations,
                 )
-                # Recompose — meaningful when the LLM Compose stage arrives;
-                # deterministic compose will produce the same output, so this
-                # loop body is standing up the structure for increment 3.
-                prs = compose(parsed, settings.assets_root)
+                # Recompose with the same plan — meaningful when the LLM Compose
+                # stage arrives; deterministic compose produces the same output
+                # each retry, standing up the loop structure for increment 3.
+                prs = compose(parsed, plan, settings.assets_root)
             else:
                 retry_count = attempt
                 logger.info(
@@ -196,6 +279,7 @@ def run_segment_b(job_id: str) -> None:
         # ---- build slide results ----
         slides = build_slides(
             parsed,
+            plan,
             content_result,
             flagged_indices=flagged_indices if not gate_passed else None,
             retry_count=retry_count,
