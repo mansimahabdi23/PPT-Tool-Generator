@@ -168,6 +168,7 @@ images, geometry, and atomic claims with their source slide/shape location. Test
 over sample decks. Show output, commit.
 ```
 ```
+=== do from here ====
 Build the asset library + retrieval. Postgres + pgvector. BrandAsset metadata per
 /docs (type, slot, dimensions, max-items, approval status, version). Retrieval =
 deterministic filter (approved + correct slot + fits item-count/dimensions) THEN
