@@ -1,7 +1,8 @@
 """Integration test: walking skeleton end-to-end roundtrip.
 
-Upload the committed sample PPTX → assert job completes → assert PPTX download works.
-The output PPTX must be openable by python-pptx with at least one slide.
+Upload the committed sample PPTX → plan_ready → approve → completed
+→ assert PPTX download works. The output PPTX must be openable by
+python-pptx with at least one slide.
 
 Run from Back-End/:
     pytest -q tests/test_skeleton.py
@@ -17,9 +18,17 @@ from fastapi.testclient import TestClient
 from pptx import Presentation
 
 from app.main import app
+from app.services import job_engine as _je
+from app.services.job_engine import InProcessJobEngine
 
 # The committed sample deck — a valid 6-slide branded PPTX
 SAMPLE_PPTX = Path(__file__).parent.parent / "out" / "samples_imocha_template.pptx"
+
+
+@pytest.fixture(scope="module", autouse=True)
+def _inline_engine() -> None:  # type: ignore[return]
+    """Use inline engine so the full pipeline completes synchronously."""
+    _je.init_engine(InProcessJobEngine(inline=True))
 
 
 @pytest.fixture(scope="module")
@@ -32,7 +41,7 @@ def client() -> TestClient:
 # ---------------------------------------------------------------------------
 
 def upload_sample(client: TestClient) -> str:
-    """Upload SAMPLE_PPTX and return the job_id."""
+    """Upload SAMPLE_PPTX, approve the plan, and return the completed job_id."""
     with SAMPLE_PPTX.open("rb") as f:
         resp = client.post(
             "/api/jobs",
@@ -42,7 +51,13 @@ def upload_sample(client: TestClient) -> str:
     assert resp.status_code == 201, f"upload failed: {resp.text}"
     data = resp.json()
     assert "jobId" in data, f"no jobId in response: {data}"
-    return data["jobId"]
+    job_id = data["jobId"]
+
+    # Approve the plan to trigger segment B (synchronous in inline mode).
+    approve = client.post(f"/api/jobs/{job_id}/plan/approve")
+    assert approve.status_code == 202, f"approve failed: {approve.text}"
+
+    return job_id
 
 
 # ---------------------------------------------------------------------------
@@ -54,8 +69,31 @@ def test_sample_pptx_exists() -> None:
 
 
 def test_upload_returns_job_id(client: TestClient) -> None:
-    job_id = upload_sample(client)
+    with SAMPLE_PPTX.open("rb") as f:
+        resp = client.post(
+            "/api/jobs",
+            files={"file": ("sample.pptx", f, "application/vnd.openxmlformats-officedocument.presentationml.presentation")},
+            data={"allow_restructure": "false"},
+        )
+    assert resp.status_code == 201
+    job_id = resp.json().get("jobId", "")
     assert job_id  # non-empty string
+
+
+def test_job_reaches_plan_ready_before_approve(client: TestClient) -> None:
+    """Segment A alone → plan_ready (not completed)."""
+    with SAMPLE_PPTX.open("rb") as f:
+        resp = client.post(
+            "/api/jobs",
+            files={"file": ("sample.pptx", f, "application/vnd.openxmlformats-officedocument.presentationml.presentation")},
+            data={"allow_restructure": "false"},
+        )
+    job_id = resp.json()["jobId"]
+    job = client.get(f"/api/jobs/{job_id}").json()
+    assert job["status"] == "plan_ready"
+    assert job["slideCount"] > 0
+    assert isinstance(job["plan"], list)
+    assert len(job["plan"]) > 0
 
 
 def test_job_status_completed(client: TestClient) -> None:

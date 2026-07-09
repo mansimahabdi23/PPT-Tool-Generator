@@ -1,0 +1,221 @@
+"""State-machine pipeline — two segments separated by the plan_ready pause.
+
+Segment A  (triggered by POST /jobs, submitted to engine):
+  parsing → parse() → analyzing → planner.build_plan() → plan_ready  [STOP]
+
+Segment B  (triggered by POST /jobs/{id}/plan/approve, submitted to engine):
+  retrieving → composing → compose() → validating → [validate gate, retry ≤ N]
+             → exporting → export() → completed
+
+Any unhandled exception in either segment transitions the job to ``failed``
+with the exception message stored on the record for the frontend to display.
+
+The ``ParsedDeck`` from segment_a is kept on the ``JobRecord._parsed`` field
+so segment_b does not re-parse the file.
+"""
+
+from __future__ import annotations
+
+import logging
+import time
+from pathlib import Path
+
+from app.config import settings
+from app.models.enums import JobStatus
+from app.services import store as job_store
+from app.services.brand_lint import lint
+from app.services.composer import compose
+from app.services.content_diff import ContentDiffResult, diff
+from app.services.exporter import OUT_ROOT, export
+from app.services.layout_qa import check as layout_check
+from app.services.parser import ParsedDeck, parse
+from app.services.planner import build_plan
+from app.services.slide_result import build_slides
+
+logger = logging.getLogger(__name__)
+
+
+# ---------------------------------------------------------------------------
+# Validate gate
+# ---------------------------------------------------------------------------
+
+
+def _validate_gate(
+    parsed: ParsedDeck,
+    prs: object,
+) -> tuple[bool, str, set[int], ContentDiffResult]:
+    """Run all three validators against *prs*.
+
+    Returns
+    -------
+    passed : bool
+    fidelity_str : str
+    flagged_indices : set[int]   — slide indices where issues remain
+    content_result : ContentDiffResult
+    """
+    brand_result = lint(prs)  # type: ignore[arg-type]
+    content_result = diff(parsed, prs)  # type: ignore[arg-type]
+    layout_result = layout_check(prs)  # type: ignore[arg-type]
+
+    passed = brand_result.passed and content_result.passed and layout_result.passed
+    fidelity_str = content_result.fidelity_str
+
+    # Collect flagged slide indices from brand + layout issues.
+    flagged: set[int] = set()
+    for v in brand_result.violations:
+        flagged.add(v.slide_index)
+    for issue in layout_result.issues:
+        flagged.add(issue.slide_index)
+
+    if not passed:
+        logger.info(
+            "Validate gate failed — brand: %s, content: %s, layout: %s",
+            brand_result.passed,
+            content_result.passed,
+            layout_result.passed,
+        )
+
+    return passed, fidelity_str, flagged, content_result
+
+
+# ---------------------------------------------------------------------------
+# Segment A — parse + plan
+# ---------------------------------------------------------------------------
+
+
+def run_segment_a(
+    job_id: str,
+    input_path: Path,
+    deck_name: str,
+    allow_restructure: bool,
+) -> None:
+    """Run the first pipeline segment: parse → analyze → plan_ready.
+
+    Called by the job engine (background thread / inline). Updates the store
+    at each step so the frontend's poll sees live progress.
+    """
+    try:
+        # ---- parsing ----
+        job_store.update(job_id, status=JobStatus.parsing)
+        logger.info("[%s] Segment A: parsing %s", job_id, input_path)
+        parsed = parse(input_path, deck_name)
+
+        # ---- analyzing ----
+        job_store.update(job_id, status=JobStatus.analyzing)
+        logger.info("[%s] Segment A: building plan (%d slides)", job_id, len(parsed.slides))
+        plan = build_plan(parsed, allow_restructure)
+
+        # ---- persist + pause ----
+        job_store.update(
+            job_id,
+            status=JobStatus.plan_ready,
+            slide_count=len(parsed.slides),
+            plan=plan,
+            _parsed=parsed,  # cache for segment_b
+        )
+        logger.info("[%s] Segment A: plan_ready (%d plan entries)", job_id, len(plan))
+
+    except Exception as exc:
+        logger.exception("[%s] Segment A failed: %s", job_id, exc)
+        job_store.update(job_id, status=JobStatus.failed, error=str(exc))
+
+
+# ---------------------------------------------------------------------------
+# Segment B — retrieve + compose + validate + export
+# ---------------------------------------------------------------------------
+
+
+def run_segment_b(job_id: str) -> None:
+    """Run the second pipeline segment: retrieving → … → completed.
+
+    Reads the ``ParsedDeck`` cached by segment_a. On validate failure, retries
+    compose+validate up to ``settings.max_regenerations`` times, then completes
+    as *partial success* (brandCompliancePassed=False + flagged slides). Only
+    an unhandled exception transitions to ``failed``.
+    """
+    try:
+        record = job_store.get(job_id)
+        if record is None:
+            logger.error("[%s] Segment B: job not found", job_id)
+            return
+
+        parsed: ParsedDeck | None = record._parsed
+        if parsed is None:
+            raise ValueError("ParsedDeck not cached from segment_a — cannot compose")
+
+        t0 = time.perf_counter()
+
+        # ---- retrieving (asset-retrieval hook; no-op this increment) ----
+        job_store.update(job_id, status=JobStatus.retrieving)
+        logger.info("[%s] Segment B: retrieving assets (stub)", job_id)
+        # TODO(increment 3): call asset retrieval with plan to hydrate compose
+
+        # ---- composing ----
+        job_store.update(job_id, status=JobStatus.composing)
+        logger.info("[%s] Segment B: composing", job_id)
+        prs = compose(parsed, settings.assets_root)
+
+        # ---- validating (with bounded retry) ----
+        job_store.update(job_id, status=JobStatus.validating)
+        gate_passed = False
+        fidelity_str = ""
+        flagged_indices: set[int] = set()
+        content_result: ContentDiffResult | None = None
+        retry_count = 0
+
+        for attempt in range(settings.max_regenerations + 1):
+            gate_passed, fidelity_str, flagged_indices, content_result = _validate_gate(parsed, prs)
+            if gate_passed:
+                retry_count = attempt
+                break
+            if attempt < settings.max_regenerations:
+                logger.info(
+                    "[%s] Validate gate failed (attempt %d/%d); recomposing",
+                    job_id, attempt + 1, settings.max_regenerations,
+                )
+                # Recompose — meaningful when the LLM Compose stage arrives;
+                # deterministic compose will produce the same output, so this
+                # loop body is standing up the structure for increment 3.
+                prs = compose(parsed, settings.assets_root)
+            else:
+                retry_count = attempt
+                logger.info(
+                    "[%s] Validate gate exhausted (%d retries); completing as partial success",
+                    job_id, retry_count,
+                )
+
+        assert content_result is not None  # always set after the loop
+
+        # ---- exporting ----
+        job_store.update(job_id, status=JobStatus.exporting)
+        logger.info("[%s] Segment B: exporting", job_id)
+        pptx_path, pdf_path = export(job_id, prs)
+
+        elapsed = int(time.perf_counter() - t0)
+
+        # ---- build slide results ----
+        slides = build_slides(
+            parsed,
+            content_result,
+            flagged_indices=flagged_indices if not gate_passed else None,
+            retry_count=retry_count,
+        )
+
+        job_store.update(
+            job_id,
+            status=JobStatus.completed,
+            pptx_path=pptx_path,
+            pdf_path=pdf_path,
+            processing_seconds=elapsed,
+            slides=slides,
+            brand_compliance_passed=gate_passed,
+            content_fidelity=fidelity_str,
+        )
+        logger.info(
+            "[%s] Segment B: completed in %ds (brand_ok=%s, fidelity=%s)",
+            job_id, elapsed, gate_passed, fidelity_str,
+        )
+
+    except Exception as exc:
+        logger.exception("[%s] Segment B failed: %s", job_id, exc)
+        job_store.update(job_id, status=JobStatus.failed, error=str(exc))

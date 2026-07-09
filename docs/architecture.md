@@ -87,9 +87,16 @@ flowchart TD
 
 ## 6. Orchestration & job state machine
 
-An async worker (Celery/RQ + Redis) runs the pipeline and updates `status` so the
-frontend's polling reflects progress. The machine **pauses at `plan_ready`** until
-`/plan/approve` is called.
+The pipeline is split into two segments around the plan-approval pause, each
+submitted to a **`JobEngine`** (a one-method protocol: `submit(fn, *args) → None`,
+fire-and-forget). The dev default is `InProcessJobEngine` — a
+`concurrent.futures.ThreadPoolExecutor` that keeps blocking I/O (python-pptx,
+LibreOffice) off the asyncio event loop. The production upgrade path is a
+`CeleryJobEngine` or `RQJobEngine` that implements the same `submit` seam —
+no caller changes needed (all callers go through `get_engine()`). An `inline=True`
+mode runs the callable synchronously for deterministic tests.
+
+The machine **pauses at `plan_ready`** until `/plan/approve` is called.
 
 ```
 parsing → analyzing → plan_ready ──(approve)──→ retrieving → composing
@@ -212,10 +219,11 @@ slide construction, template application, shape and text placement) + **XML-leve
 shape-tree copy** for infographic fragment merging (deep-copy of source `spTree`
 XML into target slide, no library abstraction) · **LibreOffice headless** (`soffice
 --headless --convert-to pdf/png`) for PDF export and slide preview image rendering ·
-Celery/RQ + Redis (async workers) · AWS S3 with lifecycle/retention (uploads,
-intermediates, outputs) · an **enterprise/zero-retention LLM** (Azure OpenAI or
-Bedrock) behind a single provider interface (pin versions; eval before upgrading).
-No Supabase.
+**`JobEngine` protocol** (dev default: `InProcessJobEngine` / `ThreadPoolExecutor`;
+prod upgrade: `CeleryJobEngine` / `RQJobEngine` + Redis — same `submit` seam, no
+caller changes) · AWS S3 with lifecycle/retention (uploads, intermediates, outputs) ·
+an **enterprise/zero-retention LLM** (Azure OpenAI or Bedrock) behind a single
+provider interface (pin versions; eval before upgrading). No Supabase.
 
 > **Capability trade-offs vs Aspose.Slides:** python-pptx cannot create native
 > SmartArt (not a concern — all infographics come from prebuilt PPTX fragments).

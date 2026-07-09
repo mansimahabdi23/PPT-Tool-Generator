@@ -81,20 +81,14 @@ export async function getJob(jobId: string): Promise<TransformJob> {
 }
 
 export async function getPlan(jobId: string): Promise<SlidePlan[]> {
-  await delay(250);
-  const rec = jobs.get(jobId);
-  if (!rec) throw new Error('Job not found');
-  return mockPlan.map((p) => ({
-    ...p,
-    restructureNote: rec.allowRestructure ? p.restructureNote : undefined,
-  }));
+  const res = await fetch(`${API}/api/jobs/${jobId}/plan`);
+  if (!res.ok) throw new Error(`getPlan failed: ${res.status}`);
+  return res.json() as Promise<SlidePlan[]>;
 }
 
 export async function approvePlan(jobId: string): Promise<void> {
-  await delay(300);
-  const rec = jobs.get(jobId);
-  if (!rec) throw new Error('Job not found');
-  rec._planApprovedAt = Date.now();
+  const res = await fetch(`${API}/api/jobs/${jobId}/plan/approve`, { method: 'POST' });
+  if (!res.ok) throw new Error(`approvePlan failed: ${res.status}`);
 }
 
 // Per-slide approval state lives client-side; keep it in memory keyed by job.

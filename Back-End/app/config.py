@@ -23,5 +23,17 @@ class Settings(BaseSettings):
     # Example: postgresql://user:pass@localhost:5432/imocha
     database_url: str | None = None
 
+    # ---------------------------------------------------------------------------
+    # Job engine
+    # ---------------------------------------------------------------------------
+    # "in_process" runs jobs in a ThreadPoolExecutor inside this process.
+    # The documented prod upgrade path: swap for a CeleryJobEngine or RQJobEngine
+    # that implements the same JobEngine.submit() seam — no caller changes.
+    job_engine: str = "in_process"
+    job_engine_workers: int = 2
+
+    # Maximum number of compose→validate cycles before a job is marked partial.
+    max_regenerations: int = 2
+
 
 settings = Settings()
