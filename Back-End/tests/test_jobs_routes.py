@@ -254,17 +254,69 @@ class TestApprovePlan:
 
 
 # ---------------------------------------------------------------------------
-# POST /api/jobs/{id}/slides/{sid}/regenerate — stub
+# POST /api/jobs/{id}/slides/{sid}/regenerate
 # ---------------------------------------------------------------------------
 
 class TestRegenerateSlide:
-    def test_returns_200_transformed_slide(self, client: TestClient) -> None:
-        job_id = _create_job(client)
+    def test_unknown_job_returns_404(self, client: TestClient) -> None:
+        resp = client.post("/api/jobs/no-such-job/slides/s1/regenerate")
+        assert resp.status_code == 404
+
+    def test_non_completed_job_returns_409(self, client: TestClient) -> None:
+        """Regeneration is only allowed once the job is completed."""
+        job_id = _create_job(client)  # leaves job in plan_ready
         resp = client.post(f"/api/jobs/{job_id}/slides/s1/regenerate")
+        assert resp.status_code == 409
+
+    def test_unknown_slide_returns_404(self, client: TestClient) -> None:
+        job_id = _create_job(client)
+        _approve_and_complete(client, job_id)
+        resp = client.post(f"/api/jobs/{job_id}/slides/no-such-slide/regenerate")
+        assert resp.status_code == 404
+
+    def test_happy_path_bumps_retry_count(self, client: TestClient) -> None:
+        job_id = _create_job(client)
+        _approve_and_complete(client, job_id)
+        slide_id = client.get(f"/api/jobs/{job_id}").json()["slides"][0]["id"]
+
+        resp = client.post(f"/api/jobs/{job_id}/slides/{slide_id}/regenerate")
         assert resp.status_code == 200
         body = resp.json()
-        for key in ("id", "originalPreviewUrl", "transformedPreviewUrl", "approval"):
-            assert key in body, f"missing key: {key}"
+        assert body["id"] == slide_id
+        assert body["approval"] == "pending"
+        assert (body.get("retryCount") or 0) >= 1
+
+    def test_happy_path_adds_regenerated_chip(self, client: TestClient) -> None:
+        job_id = _create_job(client)
+        _approve_and_complete(client, job_id)
+        slide_id = client.get(f"/api/jobs/{job_id}").json()["slides"][0]["id"]
+
+        body = client.post(f"/api/jobs/{job_id}/slides/{slide_id}/regenerate").json()
+        assert "Regenerated" in body.get("changeChips", [])
+
+    def test_store_is_updated(self, client: TestClient) -> None:
+        """A subsequent GET /jobs/{id} reflects the regenerated slide."""
+        job_id = _create_job(client)
+        _approve_and_complete(client, job_id)
+        slide_id = client.get(f"/api/jobs/{job_id}").json()["slides"][0]["id"]
+
+        client.post(f"/api/jobs/{job_id}/slides/{slide_id}/regenerate")
+
+        stored = next(
+            s for s in client.get(f"/api/jobs/{job_id}").json()["slides"]
+            if s["id"] == slide_id
+        )
+        assert stored["approval"] == "pending"
+        assert "Regenerated" in stored.get("changeChips", [])
+
+    def test_double_regenerate_increments_retry_count(self, client: TestClient) -> None:
+        job_id = _create_job(client)
+        _approve_and_complete(client, job_id)
+        slide_id = client.get(f"/api/jobs/{job_id}").json()["slides"][0]["id"]
+
+        first = client.post(f"/api/jobs/{job_id}/slides/{slide_id}/regenerate").json()
+        second = client.post(f"/api/jobs/{job_id}/slides/{slide_id}/regenerate").json()
+        assert (second.get("retryCount") or 0) > (first.get("retryCount") or 0)
 
 
 # ---------------------------------------------------------------------------

@@ -1,68 +1,34 @@
 /**
  * iMocha AI Presentation Studio — typed API client.
  *
- * Currently returns mocked data. Replace internals with fetch calls to the
- * Python/FastAPI backend. Function signatures must remain stable so screens
- * don't need changes.
+ * All functions call the real FastAPI backend. Function signatures are
+ * stable so screens don't need changes.
  *
  * Endpoint map:
  *   uploadDeck       → POST   /api/jobs            (multipart deck + allowRestructure)
  *   getJob           → GET    /api/jobs/{jobId}
  *   getPlan          → GET    /api/jobs/{jobId}/plan
  *   approvePlan      → POST   /api/jobs/{jobId}/plan/approve
+ *   getSlides        → GET    /api/jobs/{jobId}    (extracts slides field)
+ *   setSlideApproval → client-side only (no backend endpoint yet)
  *   regenerateSlide  → POST   /api/jobs/{jobId}/slides/{slideId}/regenerate
- *   getResult        → GET    /api/jobs/{jobId}/result   (returns download URLs)
+ *   getResult        → GET    /api/jobs/{jobId}/result
  *   listAssets       → GET    /api/assets
- *   createAsset      → POST   /api/assets
- *   updateAsset      → PATCH  /api/assets/{id}
+ *   listHistory      → GET    /api/jobs
  */
 import type {
   BrandAsset,
-  JobStatus,
   SlidePlan,
   TransformJob,
   TransformedSlide,
 } from '@/types';
-import { mockAssets, mockHistory, mockPlan, mockSlides } from './mockData';
-
-const delay = (ms: number) => new Promise<void>((r) => setTimeout(r, ms));
 
 // Base URL for the FastAPI backend. Set VITE_API_URL in Front-End/.env.local to override.
 const API = (import.meta as Record<string, unknown> & { env: Record<string, string> }).env.VITE_API_URL ?? 'http://localhost:8000';
 
-// In-memory mock job store (preserves across navigations within a session).
-type JobRecord = TransformJob & { _startedAt: number; _planApprovedAt?: number };
-const jobs = new Map<string, JobRecord>();
-
-const STAGE_ORDER: JobStatus[] = [
-  'parsing',
-  'analyzing',
-  'plan_ready',
-  'retrieving',
-  'composing',
-  'validating',
-  'exporting',
-  'completed',
-];
-
-const STAGE_MS = 1400;
-
-function computeStatus(rec: JobRecord): JobStatus {
-  const elapsed = Date.now() - rec._startedAt;
-  const preApproveStages = STAGE_ORDER.indexOf('plan_ready'); // 2
-  const preApproveTime = preApproveStages * STAGE_MS;
-
-  if (elapsed < STAGE_MS) return 'parsing';
-  if (elapsed < preApproveTime) return 'analyzing';
-
-  // Wait at plan_ready until approval.
-  if (!rec._planApprovedAt) return 'plan_ready';
-
-  const sinceApproval = Date.now() - rec._planApprovedAt;
-  const postStages = STAGE_ORDER.slice(STAGE_ORDER.indexOf('plan_ready') + 1);
-  const idx = Math.min(postStages.length - 1, Math.floor(sinceApproval / STAGE_MS));
-  return postStages[idx];
-}
+// ---------------------------------------------------------------------------
+// Job lifecycle
+// ---------------------------------------------------------------------------
 
 export async function uploadDeck(file: File, allowRestructure: boolean): Promise<{ jobId: string }> {
   const body = new FormData();
@@ -70,8 +36,7 @@ export async function uploadDeck(file: File, allowRestructure: boolean): Promise
   body.append('allow_restructure', String(allowRestructure));
   const res = await fetch(`${API}/api/jobs`, { method: 'POST', body });
   if (!res.ok) throw new Error(`Upload failed: ${res.status}`);
-  const data = await res.json() as { jobId: string };
-  return { jobId: data.jobId };
+  return res.json() as Promise<{ jobId: string }>;
 }
 
 export async function getJob(jobId: string): Promise<TransformJob> {
@@ -91,29 +56,24 @@ export async function approvePlan(jobId: string): Promise<void> {
   if (!res.ok) throw new Error(`approvePlan failed: ${res.status}`);
 }
 
-// Per-slide approval state lives client-side; keep it in memory keyed by job.
-const slideStates = new Map<string, Map<string, TransformedSlide>>();
+// ---------------------------------------------------------------------------
+// Review screen — slides
+//
+// Per-slide approval (approve / flag) is client-side only: no backend endpoint
+// exists yet.  approvalOverrides stores the user's choices keyed by
+// "${jobId}:${slideId}" so they survive re-fetches triggered after regeneration.
+// ---------------------------------------------------------------------------
 
-function ensureSlides(jobId: string): Map<string, TransformedSlide> {
-  let m = slideStates.get(jobId);
-  if (!m) {
-    m = new Map();
-    const rec = jobs.get(jobId);
-    mockSlides.forEach((s) => {
-      m!.set(s.id, {
-        ...s,
-        restructureNote: rec?.allowRestructure ? s.restructureNote : undefined,
-      });
-    });
-    slideStates.set(jobId, m);
-  }
-  return m;
-}
+const approvalOverrides = new Map<string, TransformedSlide['approval']>();
 
 export async function getSlides(jobId: string): Promise<TransformedSlide[]> {
-  await delay(200);
-  const m = ensureSlides(jobId);
-  return Array.from(m.values()).sort((a, b) => a.index - b.index);
+  const job = await getJob(jobId);
+  return (job.slides ?? [])
+    .map((s) => ({
+      ...s,
+      approval: approvalOverrides.get(`${jobId}:${s.id}`) ?? s.approval,
+    }))
+    .sort((a, b) => a.index - b.index);
 }
 
 export async function setSlideApproval(
@@ -121,47 +81,49 @@ export async function setSlideApproval(
   slideId: string,
   approval: TransformedSlide['approval'],
 ): Promise<TransformedSlide> {
-  await delay(150);
-  const m = ensureSlides(jobId);
-  const s = m.get(slideId);
-  if (!s) throw new Error('Slide not found');
-  const next = { ...s, approval };
-  m.set(slideId, next);
-  return next;
+  approvalOverrides.set(`${jobId}:${slideId}`, approval);
+  const job = await getJob(jobId);
+  const slide = job.slides?.find((s) => s.id === slideId);
+  if (!slide) throw new Error('Slide not found');
+  return { ...slide, approval };
 }
 
 export async function regenerateSlide(jobId: string, slideId: string): Promise<TransformedSlide> {
-  const m = ensureSlides(jobId);
-  const s = m.get(slideId);
-  if (!s) throw new Error('Slide not found');
-  m.set(slideId, { ...s, approval: 'regenerating' });
-  await delay(1400);
-  const palette = ['fd5b0e', '481aec', '7c3aed', '6366f1', 'ff4a00'];
-  const bg = palette[(s.retryCount ?? 0) % palette.length];
-  const next: TransformedSlide = {
-    ...s,
-    transformedPreviewUrl: `https://placehold.co/640x360/${bg}/ffffff?text=${encodeURIComponent('iMocha Slide ' + s.index + ' v' + ((s.retryCount ?? 1) + 1))}&font=poppins`,
-    approval: 'pending',
-    retryCount: (s.retryCount ?? 1) + 1,
-    changeChips: [...new Set([...s.changeChips, 'Regenerated'])],
-  };
-  m.set(slideId, next);
-  return next;
+  // Clear the client-side approval for this slide — it's been regenerated.
+  approvalOverrides.delete(`${jobId}:${slideId}`);
+  const res = await fetch(`${API}/api/jobs/${jobId}/slides/${slideId}/regenerate`, {
+    method: 'POST',
+  });
+  if (!res.ok) throw new Error(`regenerateSlide failed: ${res.status}`);
+  return res.json() as Promise<TransformedSlide>;
 }
+
+// ---------------------------------------------------------------------------
+// Result download
+// ---------------------------------------------------------------------------
 
 export async function getResult(jobId: string): Promise<{ pptxUrl: string; pdfUrl: string }> {
   const res = await fetch(`${API}/api/jobs/${jobId}/result`);
   if (!res.ok) throw new Error(`getResult failed: ${res.status}`);
-  const data = await res.json() as { pptxUrl: string; pdfUrl: string };
-  return data;
+  return res.json() as Promise<{ pptxUrl: string; pdfUrl: string }>;
 }
+
+// ---------------------------------------------------------------------------
+// Asset library
+// ---------------------------------------------------------------------------
 
 export async function listAssets(): Promise<BrandAsset[]> {
-  await delay(250);
-  return mockAssets;
+  const res = await fetch(`${API}/api/assets`);
+  if (!res.ok) throw new Error(`listAssets failed: ${res.status}`);
+  return res.json() as Promise<BrandAsset[]>;
 }
 
+// ---------------------------------------------------------------------------
+// History
+// ---------------------------------------------------------------------------
+
 export async function listHistory(): Promise<TransformJob[]> {
-  await delay(250);
-  return mockHistory;
+  const res = await fetch(`${API}/api/jobs`);
+  if (!res.ok) throw new Error(`listHistory failed: ${res.status}`);
+  return res.json() as Promise<TransformJob[]>;
 }

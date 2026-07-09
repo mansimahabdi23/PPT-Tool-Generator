@@ -14,19 +14,18 @@ from __future__ import annotations
 
 import logging
 import uuid
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 from fastapi import APIRouter, Form, HTTPException, Query, Response, UploadFile
 
-from app.models.enums import JobStatus
+from app.models.enums import ApprovalState, JobStatus
 from app.models.job import SlidePlan, TransformedSlide, TransformJob
 from app.models.responses import JobCreatedResponse, JobResult
-from app.services import fixtures
+from app.services import store as job_store
 from app.services.exporter import OUT_ROOT
 from app.services.job_engine import get_engine
 from app.services.pipeline import run_segment_a, run_segment_b
 from app.services.store import JobRecord
-from app.services import store as job_store
 
 logger = logging.getLogger(__name__)
 
@@ -49,7 +48,7 @@ async def create_job(
     """
     job_id = str(uuid.uuid4())
     deck_name = file.filename or "presentation.pptx"
-    created_at = datetime.now(timezone.utc).isoformat()
+    created_at = datetime.now(UTC).isoformat()
 
     # Save the uploaded bytes before entering the background thread.
     input_dir = OUT_ROOT / job_id
@@ -163,10 +162,46 @@ async def approve_plan(job_id: str, response: Response) -> TransformJob:
 # ---------------------------------------------------------------------------
 
 @router.post("/{job_id}/slides/{slide_id}/regenerate", response_model=TransformedSlide)
-async def regenerate_slide(job_id: str, slide_id: str) -> TransformedSlide:  # noqa: ARG001
-    """Regenerate a single slide (review-screen feature — follow-up increment)."""
-    _ = job_id, slide_id  # path params required by FastAPI routing; stub ignores them
-    return fixtures.STUB_SLIDES[0]
+async def regenerate_slide(job_id: str, slide_id: str) -> TransformedSlide:
+    """Regenerate a single slide and return the updated TransformedSlide.
+
+    Current behaviour: resets the slide's approval to ``pending`` and bumps
+    ``retryCount``.  The visual output (preview URL) is unchanged — actual
+    per-slide LLM recompose is a follow-up task that requires single-slide
+    compose + validate + LibreOffice render.
+
+    Guards: 404 for unknown job or slide; 409 if the job is not yet completed.
+    """
+    record = job_store.get(job_id)
+    if record is None:
+        raise HTTPException(status_code=404, detail="Job not found")
+    if record.status != JobStatus.completed:
+        raise HTTPException(
+            status_code=409,
+            detail=f"Cannot regenerate: job is in state '{record.status}', expected 'completed'",
+        )
+    if not record.slides:
+        raise HTTPException(status_code=409, detail="Job has no slides")
+
+    target = next((s for s in record.slides if s.id == slide_id), None)
+    if target is None:
+        raise HTTPException(status_code=404, detail="Slide not found")
+
+    updated = TransformedSlide(
+        id=target.id,
+        index=target.index,
+        original_preview_url=target.original_preview_url,
+        transformed_preview_url=target.transformed_preview_url,
+        content_unchanged=target.content_unchanged,
+        restructure_note=target.restructure_note,
+        change_chips=sorted({*target.change_chips, "Regenerated"}),
+        approval=ApprovalState.pending,
+        retry_count=(target.retry_count or 0) + 1,
+    )
+    new_slides = [updated if s.id == slide_id else s for s in record.slides]
+    job_store.update(job_id, slides=new_slides)
+    logger.info("[%s] Slide %s regenerated (retryCount=%d)", job_id, slide_id, updated.retry_count or 0)
+    return updated
 
 
 # ---------------------------------------------------------------------------
