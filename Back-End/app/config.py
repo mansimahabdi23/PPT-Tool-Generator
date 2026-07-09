@@ -35,5 +35,19 @@ class Settings(BaseSettings):
     # Maximum number of compose→validate cycles before a job is marked partial.
     max_regenerations: int = 2
 
+    # ---------------------------------------------------------------------------
+    # LLM provider
+    # ---------------------------------------------------------------------------
+    # "stub" (default) — deterministic, offline, testable; no API calls.
+    # "azure_openai"  — real Azure OpenAI chat completions; requires the three
+    #                   AZURE_OPENAI_* vars below to be set in the environment.
+    llm_provider: str = "stub"
+
+    # Azure OpenAI connection — required when llm_provider="azure_openai".
+    azure_openai_endpoint: str | None = None
+    azure_openai_api_key: str | None = None
+    azure_openai_deployment: str = "gpt-4o"
+    azure_openai_api_version: str = "2024-08-01-preview"
+
 
 settings = Settings()

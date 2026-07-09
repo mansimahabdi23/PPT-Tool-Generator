@@ -10,6 +10,7 @@ from app.config import settings
 from app.routers import assets, files, jobs
 from app.services.asset_store import InMemoryAssetStore, init_store
 from app.services.job_engine import InProcessJobEngine, init_engine
+from app.services.llm_provider import AzureOpenAIProvider, StubProvider, init_provider
 from app.services.seeder import seed_all
 
 
@@ -28,6 +29,22 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     engine = InProcessJobEngine(max_workers=settings.job_engine_workers)
     init_engine(engine)
     print(f"[startup] Job engine: InProcessJobEngine (workers={settings.job_engine_workers})")
+
+    # Initialise the LLM provider.
+    # Prod upgrade: set LLM_PROVIDER=azure_openai + AZURE_OPENAI_* env vars.
+    if settings.llm_provider == "azure_openai" and settings.azure_openai_endpoint:
+        from openai import AzureOpenAI  # type: ignore[import-untyped]
+        az_client = AzureOpenAI(
+            azure_endpoint=settings.azure_openai_endpoint,
+            api_key=settings.azure_openai_api_key,
+            api_version=settings.azure_openai_api_version,
+        )
+        provider = AzureOpenAIProvider(az_client, settings.azure_openai_deployment)
+        print(f"[startup] LLM provider: AzureOpenAI (deployment={settings.azure_openai_deployment})")
+    else:
+        provider = StubProvider()
+        print("[startup] LLM provider: StubProvider (deterministic offline mode)")
+    init_provider(provider)
 
     yield
 
