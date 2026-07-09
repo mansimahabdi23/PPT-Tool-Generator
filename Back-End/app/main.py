@@ -7,8 +7,9 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from app.config import settings
-from app.routers import assets, files, jobs
+from app.routers import admin, assets, files, jobs
 from app.services.asset_store import InMemoryAssetStore, init_store
+from app.services.audit import AuditLogger, init_audit_logger
 from app.services.job_engine import InProcessJobEngine, init_engine
 from app.services.llm_provider import (
     AzureOpenAIProvider,
@@ -52,6 +53,25 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         print("[startup] LLM provider: StubProvider (deterministic offline mode)")
     init_provider(provider)
 
+    # Region pinning check — prevent data leaving the approved geography.
+    if (
+        settings.llm_provider == "azure_openai"
+        and settings.azure_openai_data_zone
+        and settings.azure_openai_data_zone not in settings.azure_openai_allowed_regions
+    ):
+        raise RuntimeError(
+            f"AZURE_OPENAI_DATA_ZONE={settings.azure_openai_data_zone!r} is not in "
+            f"allowed regions {settings.azure_openai_allowed_regions}. "
+            "Set AZURE_OPENAI_DATA_ZONE to an approved region before starting."
+        )
+
+    # Initialise the audit logger.
+    init_audit_logger(AuditLogger())
+    if settings.auth_dev_bypass:
+        print("[startup] Auth: dev bypass ENABLED (IT-admin identity injected)")
+    else:
+        print(f"[startup] Auth: OIDC enabled (authority={settings.oidc_authority!r})")
+
     yield
 
     # Shutdown — drain the thread pool before the process exits.
@@ -83,6 +103,7 @@ app.add_middleware(
 app.include_router(jobs.router, prefix=settings.api_prefix)
 app.include_router(assets.router, prefix=settings.api_prefix)
 app.include_router(files.router, prefix=settings.api_prefix)
+app.include_router(admin.router, prefix=settings.api_prefix)
 
 
 # ---------------------------------------------------------------------------

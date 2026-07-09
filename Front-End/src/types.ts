@@ -7,7 +7,8 @@ export type JobStatus =
   | 'validating'
   | 'exporting'
   | 'completed'
-  | 'failed';
+  | 'failed'
+  | 'purged';
 
 export type SlideType = 'title' | 'agenda' | 'content' | 'data' | 'divider' | 'closing';
 export type ApprovalState = 'pending' | 'approved' | 'regenerating' | 'flagged';

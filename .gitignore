@@ -17,3 +17,6 @@ Thumbs.db
 # Env files
 .env
 .env.*
+
+# Job output (test artifacts, uploads, exports)
+Back-End/out/

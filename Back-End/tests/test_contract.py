@@ -88,7 +88,7 @@ class TestResponseSchemas:
     def test_job_status_enum_values(self, schema: dict) -> None:  # type: ignore[type-arg]
         """JobStatus enum values in the schema must exactly match the TS contract (§7)."""
         expected = {"parsing", "analyzing", "plan_ready", "retrieving", "composing",
-                    "validating", "exporting", "completed", "failed"}
+                    "validating", "exporting", "completed", "failed", "purged"}
         components = schema["components"]["schemas"]
         status_schema = components.get("JobStatus", {})
         actual = set(status_schema.get("enum", []))

@@ -240,6 +240,19 @@ SSO (OIDC) + RBAC (user / brand-admin / reviewer / IT-admin); audit log of every
 zero-retention LLM tier with region pinning + DPA. Uploaded decks contain confidential
 customer data — this is not optional.
 
+### Implementation (Step 6)
+
+| Concern | Decision |
+|---|---|
+| **OIDC provider** | Azure Entra ID — RS256 JWTs validated via JWKS (`{authority}/.well-known/openid-configuration`); keys cached 1 h. Set `OIDC_AUTHORITY` + `OIDC_AUDIENCE` env vars. |
+| **RBAC** | 4 roles from the JWT `roles` claim: `user`, `reviewer`, `brand-admin`, `it-admin`. No DB table — assigned in Entra ID app registration, flow into every token. |
+| **Dev bypass** | `AUTH_DEV_BYPASS=true` injects a synthetic IT-admin identity (never set in prod). Tests use `app.dependency_overrides[get_current_user]`. |
+| **Audit log** | JSON-lines file `out/audit.log` — one record per event (job.created, job.plan_approved, slide.regenerated, job.result_downloaded). Also emitted to Python logger. Ship to Sentinel/Splunk via log-tail agent. |
+| **Data retention** | `DATA_RETENTION_DAYS=30` (default). `POST /api/admin/purge` triggers sweep; `DELETE /api/admin/jobs/{id}` force-deletes. Purged jobs get `status=purged`. Celery beat wires to `purge_expired_jobs()` in prod. |
+| **Region pinning** | `AZURE_OPENAI_DATA_ZONE` must be in `AZURE_OPENAI_ALLOWED_REGIONS` (default `["eastus","westeurope"]`). Checked at startup — server refuses to start if misconfigured. |
+| **Admin routes** | `GET /api/admin/audit-log`, `POST /api/admin/purge`, `DELETE /api/admin/jobs/{id}` — all require `it-admin` role. |
+| **Asset mutations** | `POST /api/assets`, `PATCH /api/assets/{id}` — require `brand-admin` or `it-admin`. |
+
 ## 14. The de-risking gate
 
 Before building the AI agents, prove a **walking skeleton**: upload → extract text →

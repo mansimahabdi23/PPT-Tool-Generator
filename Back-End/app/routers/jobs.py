@@ -15,17 +15,23 @@ from __future__ import annotations
 import logging
 import uuid
 from datetime import UTC, datetime
+from typing import Annotated
 
-from fastapi import APIRouter, Form, HTTPException, Query, Response, UploadFile
+from fastapi import APIRouter, Depends, Form, HTTPException, Query, Response, UploadFile
 
+from app.models.auth import UserIdentity
 from app.models.enums import ApprovalState, JobStatus
 from app.models.job import SlidePlan, TransformedSlide, TransformJob
 from app.models.responses import JobCreatedResponse, JobResult
 from app.services import store as job_store
+from app.services.audit import AuditEvent, get_audit_logger
+from app.services.auth import get_current_user
 from app.services.exporter import OUT_ROOT
 from app.services.job_engine import get_engine
 from app.services.pipeline import run_segment_a, run_segment_b
 from app.services.store import JobRecord
+
+CurrentUser = Annotated[UserIdentity, Depends(get_current_user)]
 
 logger = logging.getLogger(__name__)
 
@@ -40,6 +46,7 @@ router = APIRouter(prefix="/jobs", tags=["jobs"])
 async def create_job(
     file: UploadFile,
     allow_restructure: bool = Form(default=False),
+    user: CurrentUser = None,  # type: ignore[assignment]
 ) -> JobCreatedResponse:
     """Upload a .pptx; return a job ID immediately and process in background.
 
@@ -71,6 +78,15 @@ async def create_job(
     get_engine().submit(run_segment_a, job_id, input_path, deck_name, allow_restructure)
     logger.info("[%s] Job created; segment_a submitted", job_id)
 
+    get_audit_logger().log(AuditEvent(
+        action="job.created",
+        resource_type="job",
+        resource_id=job_id,
+        user_id=user.user_id,
+        user_email=user.email,
+        metadata={"deck_name": deck_name, "allow_restructure": allow_restructure},
+    ))
+
     return JobCreatedResponse(job_id=job_id)
 
 
@@ -82,6 +98,7 @@ async def create_job(
 async def list_jobs(
     page: int = Query(default=1, ge=1),
     page_size: int = Query(default=20, ge=1, le=100),
+    _user: CurrentUser = None,  # type: ignore[assignment]
 ) -> list[TransformJob]:
     """Return all jobs, newest-first (in-memory; no real pagination yet)."""
     records = job_store.list_all()
@@ -95,7 +112,7 @@ async def list_jobs(
 # ---------------------------------------------------------------------------
 
 @router.get("/{job_id}", response_model=TransformJob)
-async def get_job(job_id: str) -> TransformJob:
+async def get_job(job_id: str, _user: CurrentUser) -> TransformJob:
     """Return the current state of a job."""
     record = job_store.get(job_id)
     if record is None:
@@ -108,7 +125,7 @@ async def get_job(job_id: str) -> TransformJob:
 # ---------------------------------------------------------------------------
 
 @router.get("/{job_id}/plan", response_model=list[SlidePlan])
-async def get_plan(job_id: str) -> list[SlidePlan]:
+async def get_plan(job_id: str, _user: CurrentUser) -> list[SlidePlan]:
     """Return the plan produced by the Analyze&Plan step.
 
     Returns an empty list if the job exists but analysis has not completed yet.
@@ -124,7 +141,7 @@ async def get_plan(job_id: str) -> list[SlidePlan]:
 # ---------------------------------------------------------------------------
 
 @router.post("/{job_id}/plan/approve", response_model=TransformJob, status_code=202)
-async def approve_plan(job_id: str, response: Response) -> TransformJob:
+async def approve_plan(job_id: str, response: Response, user: CurrentUser) -> TransformJob:
     """Approve the plan and kick off the compose+export segment.
 
     Guards:
@@ -151,6 +168,15 @@ async def approve_plan(job_id: str, response: Response) -> TransformJob:
     get_engine().submit(run_segment_b, job_id)
     logger.info("[%s] Plan approved; segment_b submitted", job_id)
 
+    get_audit_logger().log(AuditEvent(
+        action="job.plan_approved",
+        resource_type="job",
+        resource_id=job_id,
+        user_id=user.user_id,
+        user_email=user.email,
+        metadata={"deck_name": record.deck_name},
+    ))
+
     response.status_code = 202
     record = job_store.get(job_id)
     assert record is not None
@@ -162,7 +188,7 @@ async def approve_plan(job_id: str, response: Response) -> TransformJob:
 # ---------------------------------------------------------------------------
 
 @router.post("/{job_id}/slides/{slide_id}/regenerate", response_model=TransformedSlide)
-async def regenerate_slide(job_id: str, slide_id: str) -> TransformedSlide:
+async def regenerate_slide(job_id: str, slide_id: str, user: CurrentUser) -> TransformedSlide:
     """Regenerate a single slide and return the updated TransformedSlide.
 
     Current behaviour: resets the slide's approval to ``pending`` and bumps
@@ -201,6 +227,15 @@ async def regenerate_slide(job_id: str, slide_id: str) -> TransformedSlide:
     new_slides = [updated if s.id == slide_id else s for s in record.slides]
     job_store.update(job_id, slides=new_slides)
     logger.info("[%s] Slide %s regenerated (retryCount=%d)", job_id, slide_id, updated.retry_count or 0)
+
+    get_audit_logger().log(AuditEvent(
+        action="slide.regenerated",
+        resource_type="slide",
+        resource_id=slide_id,
+        user_id=user.user_id,
+        user_email=user.email,
+        metadata={"job_id": job_id, "retry_count": updated.retry_count or 0},
+    ))
     return updated
 
 
@@ -209,7 +244,7 @@ async def regenerate_slide(job_id: str, slide_id: str) -> TransformedSlide:
 # ---------------------------------------------------------------------------
 
 @router.get("/{job_id}/result", response_model=JobResult)
-async def get_result(job_id: str) -> JobResult:
+async def get_result(job_id: str, user: CurrentUser) -> JobResult:
     """Return download URLs and validator results for a completed job."""
     record = job_store.get(job_id)
     if record is None:
@@ -222,6 +257,15 @@ async def get_result(job_id: str) -> JobResult:
 
     pptx_url = f"/api/jobs/{job_id}/files/output.pptx"
     pdf_url = f"/api/jobs/{job_id}/files/output.pdf" if record.pdf_path else ""
+
+    get_audit_logger().log(AuditEvent(
+        action="job.result_downloaded",
+        resource_type="job",
+        resource_id=job_id,
+        user_id=user.user_id,
+        user_email=user.email,
+        metadata={"deck_name": record.deck_name},
+    ))
 
     return JobResult(
         pptx_url=pptx_url,

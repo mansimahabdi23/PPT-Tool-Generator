@@ -13,6 +13,7 @@ class JobStatus(StrEnum):
     exporting = "exporting"
     completed = "completed"
     failed = "failed"
+    purged = "purged"
 
 
 class SlideType(StrEnum):

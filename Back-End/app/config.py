@@ -49,5 +49,34 @@ class Settings(BaseSettings):
     azure_openai_deployment: str = "gpt-4o"
     azure_openai_api_version: str = "2024-08-01-preview"
 
+    # ---------------------------------------------------------------------------
+    # Enterprise: Authentication (OIDC / Azure Entra ID)
+    # ---------------------------------------------------------------------------
+    # Set AUTH_DEV_BYPASS=true for local development only — NEVER in production.
+    auth_dev_bypass: bool = False
+
+    # Azure Entra ID (or generic OIDC) authority and audience.
+    # Example:
+    #   OIDC_AUTHORITY=https://login.microsoftonline.com/{tenant_id}/v2.0
+    #   OIDC_AUDIENCE=api://{client_id}
+    oidc_authority: str = ""
+    oidc_audience: str = ""
+    oidc_jwks_cache_ttl_seconds: int = 3600
+
+    # ---------------------------------------------------------------------------
+    # Enterprise: Data retention
+    # ---------------------------------------------------------------------------
+    # Output files (PPTX/PDF) and intermediates are deleted after this many days.
+    # IT-admin can trigger a sweep early via POST /api/admin/purge.
+    data_retention_days: int = 30
+
+    # ---------------------------------------------------------------------------
+    # Enterprise: LLM region pinning (zero-retention tier)
+    # ---------------------------------------------------------------------------
+    # When llm_provider="azure_openai", AZURE_OPENAI_DATA_ZONE must be set to one
+    # of the approved regions to prevent data leaving the allowed geography.
+    azure_openai_allowed_regions: list[str] = ["eastus", "westeurope"]
+    azure_openai_data_zone: str = ""
+
 
 settings = Settings()

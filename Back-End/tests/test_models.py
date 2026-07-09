@@ -27,7 +27,7 @@ from app.models.responses import JobCreatedResponse, JobResult
 class TestEnumMembers:
     def test_job_status_members(self) -> None:
         expected = {"parsing", "analyzing", "plan_ready", "retrieving", "composing",
-                    "validating", "exporting", "completed", "failed"}
+                    "validating", "exporting", "completed", "failed", "purged"}
         assert {e.value for e in JobStatus} == expected
 
     def test_slide_type_members(self) -> None:

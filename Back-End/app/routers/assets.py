@@ -7,20 +7,29 @@ All retrieval goes through the deterministic filter + vector rank pipeline.
 from __future__ import annotations
 
 import uuid
+from typing import Annotated
 
-from fastapi import APIRouter, Form, Query, UploadFile
+from fastapi import APIRouter, Depends, Form, Query, UploadFile
 
 from app.models.asset import BrandAsset, BrandAssetUpdate
+from app.models.auth import Role, UserIdentity
 from app.models.enums import AssetSlot, AssetStatus, AssetType
 from app.services.asset_store import AssetRecord, get_store
+from app.services.auth import get_current_user, require_roles
 
 router = APIRouter(prefix="/assets", tags=["assets"])
+
+# Any authenticated user can browse the library.
+CurrentUser = Annotated[UserIdentity, Depends(get_current_user)]
+# Mutations (upload / update) require brand-admin or IT-admin.
+BrandAdmin = Annotated[UserIdentity, Depends(require_roles(Role.brand_admin, Role.it_admin))]
 
 
 @router.get("", response_model=list[BrandAsset])
 async def list_assets(
     type: AssetType | None = Query(default=None),  # noqa: A002
     status: AssetStatus | None = Query(default=None),
+    _user: CurrentUser = None,  # type: ignore[assignment]  # dummy for arg-ordering; Annotated carries the Depends
 ) -> list[BrandAsset]:
     """Return the full asset library, optionally filtered by type or status."""
     return get_store().list_all(type_filter=type, status_filter=status)
@@ -28,6 +37,7 @@ async def list_assets(
 
 @router.post("", response_model=BrandAsset, status_code=201)
 async def create_asset(
+    _user: BrandAdmin,
     file: UploadFile,
     name: str = Form(),
     type: AssetType = Form(),  # noqa: A002
@@ -70,14 +80,18 @@ async def create_asset(
 
 
 @router.patch("/{asset_id}", response_model=BrandAsset)
-async def update_asset(asset_id: str, body: BrandAssetUpdate) -> BrandAsset:
+async def update_asset(
+    asset_id: str,
+    body: BrandAssetUpdate,
+    _user: BrandAdmin,
+) -> BrandAsset:
     """Partial update of a brand asset (name, status, tags, version, etc.)."""
     store = get_store()
     try:
         updated = store.update(asset_id, body)
-    except KeyError:
+    except KeyError as exc:
         from fastapi import HTTPException
-        raise HTTPException(status_code=404, detail=f"Asset {asset_id!r} not found")
+        raise HTTPException(status_code=404, detail=f"Asset {asset_id!r} not found") from exc
     return BrandAsset(
         id=updated.id,
         name=updated.name,
