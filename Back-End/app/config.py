@@ -18,5 +18,10 @@ class Settings(BaseSettings):
     # Monorepo assets/ directory (override via ASSETS_ROOT env var if needed)
     assets_root: Path = _REPO_ROOT / "assets"
 
+    # PostgreSQL + pgvector connection string (optional).
+    # When set, PostgresAssetStore is used in production; otherwise InMemoryAssetStore.
+    # Example: postgresql://user:pass@localhost:5432/imocha
+    database_url: str | None = None
+
 
 settings = Settings()

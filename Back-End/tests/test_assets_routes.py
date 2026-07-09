@@ -55,9 +55,13 @@ class TestCreateAsset:
 
 
 class TestUpdateAsset:
+    def _first_asset_id(self, client: TestClient) -> str:
+        return client.get("/api/assets").json()[0]["id"]
+
     def test_returns_200_brand_asset(self, client: TestClient) -> None:
+        asset_id = self._first_asset_id(client)
         response = client.patch(
-            "/api/assets/a1",
+            f"/api/assets/{asset_id}",
             json={"name": "Updated Name", "version": "v4.0"},
         )
         assert response.status_code == 200
@@ -65,5 +69,6 @@ class TestUpdateAsset:
         assert ASSET_KEYS.issubset(body.keys())
 
     def test_empty_patch_is_valid(self, client: TestClient) -> None:
-        response = client.patch("/api/assets/a1", json={})
+        asset_id = self._first_asset_id(client)
+        response = client.patch(f"/api/assets/{asset_id}", json={})
         assert response.status_code == 200
