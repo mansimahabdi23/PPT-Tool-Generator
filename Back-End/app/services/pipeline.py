@@ -28,7 +28,7 @@ from app.services.asset_store import get_store
 from app.services.brand_lint import lint
 from app.services.composer import compose
 from app.services.content_diff import ContentDiffResult, diff
-from app.services.exporter import OUT_ROOT, export
+from app.services.exporter import export
 from app.services.layout_qa import check as layout_check
 from app.services.parser import ParsedDeck, parse
 from app.services.planner import build_plan
@@ -134,9 +134,9 @@ def _validate_gate(
     flagged_indices : set[int]   — slide indices where issues remain
     content_result : ContentDiffResult
     """
-    brand_result = lint(prs)  # type: ignore[arg-type]
-    content_result = diff(parsed, prs)  # type: ignore[arg-type]
-    layout_result = layout_check(prs)  # type: ignore[arg-type]
+    brand_result = lint(prs)
+    content_result = diff(parsed, prs)
+    layout_result = layout_check(prs)
 
     passed = brand_result.passed and content_result.passed and layout_result.passed
     fidelity_str = content_result.fidelity_str

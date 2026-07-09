@@ -1,7 +1,7 @@
 """FastAPI application entry point."""
 
+from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
-from typing import AsyncIterator
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
@@ -10,7 +10,12 @@ from app.config import settings
 from app.routers import assets, files, jobs
 from app.services.asset_store import InMemoryAssetStore, init_store
 from app.services.job_engine import InProcessJobEngine, init_engine
-from app.services.llm_provider import AzureOpenAIProvider, StubProvider, init_provider
+from app.services.llm_provider import (
+    AzureOpenAIProvider,
+    LLMProvider,
+    StubProvider,
+    init_provider,
+)
 from app.services.seeder import seed_all
 
 
@@ -32,8 +37,9 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
 
     # Initialise the LLM provider.
     # Prod upgrade: set LLM_PROVIDER=azure_openai + AZURE_OPENAI_* env vars.
+    provider: LLMProvider
     if settings.llm_provider == "azure_openai" and settings.azure_openai_endpoint:
-        from openai import AzureOpenAI  # type: ignore[import-untyped]
+        from openai import AzureOpenAI
         az_client = AzureOpenAI(
             azure_endpoint=settings.azure_openai_endpoint,
             api_key=settings.azure_openai_api_key,
