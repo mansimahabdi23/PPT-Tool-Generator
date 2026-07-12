@@ -1,8 +1,8 @@
 import { createFileRoute } from "@tanstack/react-router";
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
 import { Plus, ShieldCheck, Search } from "lucide-react";
-import { listAssets } from "@/lib/api";
+import { listAssets, createAsset } from "@/lib/api";
 import { PageHeader } from "@/components/PageHeader";
 import { StatusBadge } from "@/components/StatusBadge";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -38,10 +38,35 @@ export const Route = createFileRoute("/assets")({
 });
 
 function AssetsPage() {
+  const queryClient = useQueryClient();
   const { data, isLoading } = useQuery({ queryKey: ["assets"], queryFn: listAssets });
   const [typeFilter, setTypeFilter] = useState<"all" | AssetType>("all");
   const [statusFilter, setStatusFilter] = useState<"all" | AssetStatus>("all");
   const [q, setQ] = useState("");
+
+  // Dialog state
+  const [dialogOpen, setDialogOpen] = useState(false);
+  const [name, setName] = useState("");
+  const [type, setType] = useState<AssetType>("template");
+  const [tags, setTags] = useState("");
+  const [file, setFile] = useState<File | null>(null);
+
+  const uploadMutation = useMutation({
+    mutationFn: () => {
+      if (!file) throw new Error("No file selected");
+      return createAsset({ name, type, tags, file });
+    },
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: ["assets"] });
+      toast.success("Asset uploaded and ready to use");
+      setDialogOpen(false);
+      setName("");
+      setType("template");
+      setTags("");
+      setFile(null);
+    },
+    onError: () => toast.error("Upload failed. Please try again."),
+  });
 
   const filtered = data?.filter((a) => {
     if (typeFilter !== "all" && a.type !== typeFilter) return false;
@@ -57,7 +82,7 @@ function AssetsPage() {
         title="Brand assets"
         subtitle="Approved templates, icons, infographics, and logos used to compose iMocha decks."
         actions={
-          <Dialog>
+          <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
             <DialogTrigger asChild>
               <button className="inline-flex items-center gap-2 rounded-lg bg-brand-orange px-4 py-2.5 text-sm font-semibold text-white hover:bg-brand-orange-deep">
                 <Plus className="h-4 w-4" /> Add asset
@@ -65,63 +90,66 @@ function AssetsPage() {
             </DialogTrigger>
             <DialogContent>
               <DialogHeader>
-                <DialogTitle>Add a brand asset</DialogTitle>
+                <DialogTitle>Upload a brand asset</DialogTitle>
                 <DialogDescription>
-                  New assets go into review before being usable in transformations.
+                  Assets are added directly to the library and available immediately for use in transformations.
                 </DialogDescription>
               </DialogHeader>
               <form
                 onSubmit={(e) => {
                   e.preventDefault();
-                  toast.success("Asset submitted for review");
+                  uploadMutation.mutate();
                 }}
                 className="space-y-4"
               >
                 <div className="space-y-1.5">
                   <Label htmlFor="name">Name</Label>
-                  <Input id="name" placeholder="e.g. Hero Cover — Q4 2026" required />
-                </div>
-                <div className="grid grid-cols-2 gap-3">
-                  <div className="space-y-1.5">
-                    <Label>Type</Label>
-                    <Select defaultValue="template">
-                      <SelectTrigger><SelectValue /></SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="template">Template</SelectItem>
-                        <SelectItem value="icon">Icon</SelectItem>
-                        <SelectItem value="infographic">Infographic</SelectItem>
-                        <SelectItem value="logo">Logo</SelectItem>
-                        <SelectItem value="chart">Chart</SelectItem>
-                      </SelectContent>
-                    </Select>
-                  </div>
-                  <div className="space-y-1.5">
-                    <Label>Slot</Label>
-                    <Select defaultValue="content">
-                      <SelectTrigger><SelectValue /></SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="cover">Cover</SelectItem>
-                        <SelectItem value="content">Content</SelectItem>
-                        <SelectItem value="divider">Divider</SelectItem>
-                        <SelectItem value="closing">Closing</SelectItem>
-                      </SelectContent>
-                    </Select>
-                  </div>
+                  <Input
+                    id="name"
+                    placeholder="e.g. Hero Cover — Q4 2026"
+                    value={name}
+                    onChange={(e) => setName(e.target.value)}
+                    required
+                  />
                 </div>
                 <div className="space-y-1.5">
-                  <Label htmlFor="tags">Tags</Label>
-                  <Input id="tags" placeholder="hero, q4, skill" />
+                  <Label>Type</Label>
+                  <Select value={type} onValueChange={(v) => setType(v as AssetType)}>
+                    <SelectTrigger><SelectValue /></SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="template">Template</SelectItem>
+                      <SelectItem value="icon">Icon</SelectItem>
+                      <SelectItem value="infographic">Infographic</SelectItem>
+                      <SelectItem value="logo">Logo</SelectItem>
+                      <SelectItem value="chart">Chart</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div className="space-y-1.5">
+                  <Label htmlFor="tags">Tags <span className="text-muted-foreground">(optional)</span></Label>
+                  <Input
+                    id="tags"
+                    placeholder="hero, q4, skill"
+                    value={tags}
+                    onChange={(e) => setTags(e.target.value)}
+                  />
                 </div>
                 <div className="space-y-1.5">
                   <Label htmlFor="file">File</Label>
-                  <Input id="file" type="file" />
+                  <Input
+                    id="file"
+                    type="file"
+                    required
+                    onChange={(e) => setFile(e.target.files?.[0] ?? null)}
+                  />
                 </div>
                 <DialogFooter>
                   <button
                     type="submit"
-                    className="inline-flex items-center gap-2 rounded-lg bg-brand-orange px-4 py-2 text-sm font-semibold text-white hover:bg-brand-orange-deep"
+                    disabled={uploadMutation.isPending || !file}
+                    className="inline-flex items-center gap-2 rounded-lg bg-brand-orange px-4 py-2 text-sm font-semibold text-white hover:bg-brand-orange-deep disabled:opacity-50"
                   >
-                    Submit for review
+                    {uploadMutation.isPending ? "Uploading…" : "Upload asset"}
                   </button>
                 </DialogFooter>
               </form>
@@ -186,7 +214,7 @@ function AssetsPage() {
                 <div className="min-w-0">
                   <div className="truncate text-sm font-semibold text-ink">{a.name}</div>
                   <div className="text-xs capitalize text-muted-foreground">
-                    {a.type} · {a.slot} · {a.version}
+                    {a.type} · {a.version}
                   </div>
                 </div>
                 <StatusBadge status={a.status} />

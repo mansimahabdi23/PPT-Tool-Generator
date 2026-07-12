@@ -11,7 +11,7 @@ import {
   Loader2,
 } from "lucide-react";
 import { toast } from "sonner";
-import { getSlides, regenerateSlide, setSlideApproval } from "@/lib/api";
+import { getSlides, getJob, regenerateSlide, setSlideApproval } from "@/lib/api";
 import { PageHeader } from "@/components/PageHeader";
 import { Skeleton } from "@/components/ui/skeleton";
 import {
@@ -36,10 +36,30 @@ function ReviewPage() {
   const qc = useQueryClient();
   const [editorOpen, setEditorOpen] = useState<number | null>(null);
 
+  const { data: job } = useQuery({
+    queryKey: ["job", jobId],
+    queryFn: () => getJob(jobId),
+    refetchInterval: (query) => {
+      const s = query.state.data?.status;
+      return s === "completed" || s === "failed" ? false : 1500;
+    },
+  });
+
+  const isProcessing = !job || (job.status !== "completed" && job.status !== "failed");
+  const isFailed = job?.status === "failed";
+
   const { data: slides, isLoading } = useQuery({
     queryKey: ["slides", jobId],
     queryFn: () => getSlides(jobId),
+    enabled: job?.status === "completed",
   });
+
+  const STATUS_LABEL: Partial<Record<string, string>> = {
+    retrieving: "Retrieving assets…",
+    composing: "Composing slides…",
+    validating: "Validating output…",
+    exporting: "Exporting…",
+  };
 
   const approveMut = useMutation({
     mutationFn: ({ slideId, approval }: { slideId: string; approval: TransformedSlide["approval"] }) =>
@@ -72,8 +92,24 @@ function ReviewPage() {
         subtitle="Side-by-side before/after for every slide. Content unchanged — only design has been updated."
       />
 
+      {isProcessing && (
+        <div className="flex flex-col items-center gap-4 py-24">
+          <Loader2 className="h-8 w-8 animate-spin text-brand-orange" />
+          <p className="text-sm font-semibold text-ink">
+            {STATUS_LABEL[job?.status ?? ""] ?? "Processing…"}
+          </p>
+          <p className="text-xs capitalize text-muted-foreground">{job?.status ?? "initializing"}</p>
+        </div>
+      )}
+
+      {isFailed && (
+        <div className="rounded-xl border border-amber-200 bg-amber-50 px-5 py-4 text-sm text-amber-900">
+          Processing failed. Please go back and try again.
+        </div>
+      )}
+
       <div className="space-y-5">
-        {isLoading &&
+        {!isProcessing && !isFailed && isLoading &&
           Array.from({ length: 3 }).map((_, i) => (
             <Skeleton key={i} className="h-72 w-full rounded-2xl" />
           ))}
@@ -282,7 +318,13 @@ function PreviewPanel({
       </div>
       <div className="relative px-5 pb-5">
         <div className="overflow-hidden rounded-lg border border-border">
-          <img src={url} alt={label} className="block aspect-video w-full object-cover" />
+          {url ? (
+            <img src={url} alt={label} className="block aspect-video w-full object-cover" />
+          ) : (
+            <div className="flex aspect-video w-full items-center justify-center bg-surface text-sm text-muted-foreground">
+              Preview unavailable
+            </div>
+          )}
           {loading && (
             <div className="absolute inset-0 mx-5 mb-5 grid place-items-center rounded-lg bg-white/80 backdrop-blur-sm">
               <div className="flex items-center gap-2 text-sm font-medium text-ink">

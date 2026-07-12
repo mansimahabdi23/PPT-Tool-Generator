@@ -45,8 +45,8 @@ function PlanPage() {
     mutationFn: () => approvePlan(jobId),
     onSuccess: () => {
       toast.success("Plan approved", { description: "Generating slides now…" });
-      qc.invalidateQueries({ queryKey: ["job", jobId] });
-      navigate({ to: "/process/$jobId", params: { jobId } });
+      void qc.invalidateQueries({ queryKey: ["job", jobId] });
+      void navigate({ to: "/review/$jobId", params: { jobId } });
     },
   });
 
@@ -142,7 +142,7 @@ function PlanPage() {
             <X className="h-4 w-4" /> Cancel
           </button>
           <button
-            disabled={approve.isPending || !plan}
+            disabled={approve.isPending || approve.isSuccess || !plan}
             onClick={() => approve.mutate()}
             className="inline-flex items-center gap-2 rounded-lg bg-brand-orange px-5 py-2.5 text-sm font-semibold text-white shadow-sm hover:bg-brand-orange-deep disabled:opacity-50"
           >

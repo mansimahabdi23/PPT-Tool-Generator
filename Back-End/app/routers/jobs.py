@@ -152,7 +152,20 @@ async def approve_plan(job_id: str, response: Response, user: CurrentUser) -> Tr
     record = job_store.get(job_id)
     if record is None:
         raise HTTPException(status_code=404, detail="Job not found")
+
+    # Idempotent: if approval already ran the job will be in one of these states.
+    # Return the current job as a success rather than a scary 409.
+    _POST_APPROVAL = {
+        JobStatus.retrieving,
+        JobStatus.composing,
+        JobStatus.validating,
+        JobStatus.exporting,
+        JobStatus.completed,
+    }
     if record.status != JobStatus.plan_ready:
+        if record.status in _POST_APPROVAL:
+            response.status_code = 200
+            return _record_to_job(record)
         raise HTTPException(
             status_code=409,
             detail=f"Cannot approve: job is in state '{record.status}', expected 'plan_ready'",

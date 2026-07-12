@@ -28,7 +28,7 @@ from app.services.asset_store import get_store
 from app.services.brand_lint import lint
 from app.services.composer import compose
 from app.services.content_diff import ContentDiffResult, diff
-from app.services.exporter import export
+from app.services.exporter import OUT_ROOT, export, render_previews
 from app.services.layout_qa import check as layout_check
 from app.services.parser import ParsedDeck, parse
 from app.services.planner import build_plan
@@ -274,6 +274,23 @@ def run_segment_b(job_id: str) -> None:
         logger.info("[%s] Segment B: exporting", job_id)
         pptx_path, pdf_path = export(job_id, prs)
 
+        # ---- render per-slide preview PNGs (non-fatal if tools unavailable) ----
+        input_pptx = OUT_ROOT / job_id / "input.pptx"
+        orig_pngs = render_previews(job_id, input_pptx, "original")
+        trans_pngs = render_previews(job_id, pptx_path, "transformed", reuse_pdf=pdf_path)
+
+        n = len(parsed.slides)
+        orig_urls = [
+            f"/api/jobs/{job_id}/previews/original/slide-{i + 1}.png"
+            if i < len(orig_pngs) else ""
+            for i in range(n)
+        ]
+        trans_urls = [
+            f"/api/jobs/{job_id}/previews/transformed/slide-{i + 1}.png"
+            if i < len(trans_pngs) else ""
+            for i in range(n)
+        ]
+
         elapsed = int(time.perf_counter() - t0)
 
         # ---- build slide results ----
@@ -281,6 +298,8 @@ def run_segment_b(job_id: str) -> None:
             parsed,
             plan,
             content_result,
+            original_preview_urls=orig_urls,
+            transformed_preview_urls=trans_urls,
             flagged_indices=flagged_indices if not gate_passed else None,
             retry_count=retry_count,
         )

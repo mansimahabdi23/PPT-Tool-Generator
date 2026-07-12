@@ -51,9 +51,10 @@ export async function getPlan(jobId: string): Promise<SlidePlan[]> {
   return res.json() as Promise<SlidePlan[]>;
 }
 
-export async function approvePlan(jobId: string): Promise<void> {
+export async function approvePlan(jobId: string): Promise<TransformJob> {
   const res = await fetch(`${API}/api/jobs/${jobId}/plan/approve`, { method: 'POST' });
   if (!res.ok) throw new Error(`approvePlan failed: ${res.status}`);
+  return res.json() as Promise<TransformJob>;
 }
 
 // ---------------------------------------------------------------------------
@@ -116,6 +117,23 @@ export async function listAssets(): Promise<BrandAsset[]> {
   const res = await fetch(`${API}/api/assets`);
   if (!res.ok) throw new Error(`listAssets failed: ${res.status}`);
   return res.json() as Promise<BrandAsset[]>;
+}
+
+export async function createAsset(params: {
+  name: string;
+  type: string;
+  tags: string;
+  file: File;
+}): Promise<BrandAsset> {
+  const body = new FormData();
+  body.append('name', params.name);
+  body.append('type', params.type);
+  body.append('slot', 'content');   // slot is an internal detail; hidden from the upload UI
+  body.append('tags', params.tags);
+  body.append('file', params.file);
+  const res = await fetch(`${API}/api/assets`, { method: 'POST', body });
+  if (!res.ok) throw new Error(`createAsset failed: ${res.status}`);
+  return res.json() as Promise<BrandAsset>;
 }
 
 // ---------------------------------------------------------------------------
