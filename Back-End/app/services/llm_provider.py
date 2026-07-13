@@ -25,7 +25,8 @@ from typing import Any, Protocol, runtime_checkable
 
 from app.models.enums import AssetType, SlideType
 from app.models.job import SlidePlan
-from app.services.parser import ParsedDeck
+from app.services.parser import ParsedDeck, ParsedSlide
+from app.templates.layout_catalog import select_catalog_entry
 
 logger = logging.getLogger(__name__)
 
@@ -51,6 +52,32 @@ class LLMProvider(Protocol):
 # ---------------------------------------------------------------------------
 # Stub — deterministic, offline, testable
 # ---------------------------------------------------------------------------
+
+def _apply_catalog(
+    plan: SlidePlan,
+    slide: ParsedSlide,
+    is_first: bool,
+    is_last: bool,
+) -> SlidePlan:
+    """Enrich *plan* with deterministic catalog layout selection.
+
+    Sets template_slide_index, layout_category, overflow_flagged, and updates
+    planned_layout to a human-readable catalog description so the Plan review
+    screen shows the chosen template slide.
+    """
+    entry, overflow = select_catalog_entry(slide, is_first, is_last)
+    # Show item capacity only for cards (e.g. "cards/3 items"); other categories are unambiguous
+    if entry.category == "cards" and entry.max_items:
+        layout_str = f"cards/{entry.max_items} items → template slide {entry.template_slide_index}"
+    else:
+        layout_str = f"{entry.category} → template slide {entry.template_slide_index}"
+    return plan.model_copy(update={
+        "planned_layout": layout_str,
+        "template_slide_index": entry.template_slide_index,
+        "layout_category": entry.category,
+        "overflow_flagged": overflow,
+    })
+
 
 _LAYOUT_MAP: dict[SlideType, str] = {
     SlideType.title:   "Full-bleed cover with title, subtitle, and logo",
@@ -84,6 +111,7 @@ class StubProvider:
         parsed: ParsedDeck,
         allow_restructure: bool,
     ) -> list[SlidePlan]:
+        last = len(parsed.slides) - 1
         plans: list[SlidePlan] = []
         for i, slide in enumerate(parsed.slides):
             slide_type = slide.slide_type
@@ -93,14 +121,15 @@ class StubProvider:
                     "Restructuring enabled — the Analyze & Plan LLM may propose "
                     "reordering or merging this slide."
                 )
-            plans.append(SlidePlan(
+            plan = SlidePlan(
                 id=str(uuid.uuid4()),
                 index=i,
                 slide_type=slide_type,
                 planned_layout=_LAYOUT_MAP.get(slide_type, "Standard content layout"),
                 asset_types=_ASSET_TYPE_MAP.get(slide_type, [AssetType.template]),
                 restructure_note=note,
-            ))
+            )
+            plans.append(_apply_catalog(plan, slide, is_first=(i == 0), is_last=(i == last)))
         return plans
 
 
@@ -262,6 +291,7 @@ class AzureOpenAIProvider:
             for p in StubProvider().analyze_deck(parsed, allow_restructure)
         }
 
+        last = len(parsed.slides) - 1
         plans: list[SlidePlan] = []
         for i, slide in enumerate(parsed.slides):
             if i < len(raw_plans):
@@ -275,7 +305,7 @@ class AzureOpenAIProvider:
                         asset_types=[AssetType(a) for a in entry.get("assetTypes", [])],
                         restructure_note=entry.get("restructureNote"),
                     )
-                    plans.append(plan)
+                    plans.append(_apply_catalog(plan, slide, is_first=(i == 0), is_last=(i == last)))
                 except (KeyError, ValueError) as exc:
                     logger.warning(
                         "Bad plan entry for slide %d (%s) — using stub", i, exc

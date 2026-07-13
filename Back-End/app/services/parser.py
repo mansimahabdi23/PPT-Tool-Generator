@@ -461,10 +461,15 @@ def _derive_title(blocks: list[ParsedTextBlock]) -> str:
     return best
 
 
+_FOOTER_TOP_PCT = 0.88  # text blocks starting below this are footers/watermarks
+
+
 def _derive_body(blocks: list[ParsedTextBlock], title_text: str) -> list[str]:
     lines: list[str] = []
     for b in blocks:
         if b.shape_role == "title" or b.full_text == title_text:
+            continue
+        if b.geometry.top_pct > _FOOTER_TOP_PCT:  # skip footer / page-number zone
             continue
         for para in b.paragraphs:
             line = para.text.strip()

@@ -18,6 +18,9 @@ class Settings(BaseSettings):
     # Monorepo assets/ directory (override via ASSETS_ROOT env var if needed)
     assets_root: Path = _REPO_ROOT / "assets"
 
+    # iMocha 2026 template — source of truth for clone-and-fill (Step 2)
+    template_pptx: Path = _REPO_ROOT / "assets" / "templates" / "iMocha_PPT_Template_New__2026_.pptx"
+
     # PostgreSQL + pgvector connection string (optional).
     # When set, PostgresAssetStore is used in production; otherwise InMemoryAssetStore.
     # Example: postgresql://user:pass@localhost:5432/imocha

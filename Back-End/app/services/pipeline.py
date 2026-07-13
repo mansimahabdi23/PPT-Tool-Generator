@@ -236,7 +236,10 @@ def run_segment_b(job_id: str) -> None:
         # ---- composing ----
         job_store.update(job_id, status=JobStatus.composing)
         logger.info("[%s] Segment B: composing", job_id)
-        prs = compose(parsed, plan, settings.assets_root)
+        # Load the template once; reuse across retries to avoid repeated I/O.
+        from app.templates.clone_fill import load_template as _load_template
+        tmpl_prs = _load_template(settings.template_pptx)
+        prs, compose_overflow = compose(parsed, plan, settings.assets_root, tmpl_prs)
 
         # ---- validating (with bounded retry) ----
         job_store.update(job_id, status=JobStatus.validating)
@@ -259,13 +262,16 @@ def run_segment_b(job_id: str) -> None:
                 # Recompose with the same plan — meaningful when the LLM Compose
                 # stage arrives; deterministic compose produces the same output
                 # each retry, standing up the loop structure for increment 3.
-                prs = compose(parsed, plan, settings.assets_root)
+                prs, compose_overflow = compose(parsed, plan, settings.assets_root, tmpl_prs)
             else:
                 retry_count = attempt
                 logger.info(
                     "[%s] Validate gate exhausted (%d retries); completing as partial success",
                     job_id, retry_count,
                 )
+
+        # Merge compose-time overflow flags into the validate-gate flagged set
+        flagged_indices |= compose_overflow
 
         assert content_result is not None  # always set after the loop
 

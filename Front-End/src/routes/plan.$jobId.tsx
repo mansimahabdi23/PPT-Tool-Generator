@@ -1,6 +1,6 @@
 import { createFileRoute, useNavigate } from "@tanstack/react-router";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { ArrowRight, ShieldCheck, Layers, X, Loader2 } from "lucide-react";
+import { ArrowRight, ShieldCheck, Layers, X, Loader2, AlertTriangle } from "lucide-react";
 import { toast } from "sonner";
 import { approvePlan, getJob, getPlan } from "@/lib/api";
 import { PageHeader } from "@/components/PageHeader";
@@ -79,6 +79,11 @@ function PlanPage() {
                 >
                   {typeLabels[p.slideType]}
                 </span>
+                {p.overflowFlagged && (
+                  <span className="inline-flex items-center gap-1 rounded-full bg-red-100 px-2.5 py-0.5 text-xs font-medium text-red-700">
+                    <AlertTriangle className="h-3 w-3" /> Overflow — needs review
+                  </span>
+                )}
               </div>
               <div className="min-w-0 flex-1">
                 <div className="text-sm font-semibold text-ink">{p.plannedLayout}</div>

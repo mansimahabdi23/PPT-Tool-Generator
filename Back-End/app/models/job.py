@@ -14,6 +14,10 @@ class SlidePlan(CamelModel):
     planned_layout: str
     asset_types: list[AssetType]
     restructure_note: str | None = None
+    # Layout catalog selection — set by Analyze-and-Plan; consumed by clone-and-fill (Step 2)
+    template_slide_index: int | None = None   # 1-based index into iMocha_PPT_Template_New__2026_.pptx
+    layout_category: str | None = None        # LayoutCategory literal (e.g. "body-block", "cards")
+    overflow_flagged: bool = False            # True when item count exceeds body-block capacity
 
 
 class TransformedSlide(CamelModel):

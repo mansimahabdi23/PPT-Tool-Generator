@@ -194,8 +194,14 @@ def test_azure_uses_llm_response() -> None:
 
     assert len(plans) == 2
     assert plans[0].slide_type == SlideType.title
-    assert plans[0].planned_layout == "Full-bleed cover with brand orange gradient and logo"
+    # planned_layout is overridden by deterministic catalog selection (first slide → cover)
+    assert plans[0].planned_layout == "cover → template slide 1"
+    assert plans[0].template_slide_index == 1
+    assert plans[0].layout_category == "cover"
     assert plans[1].slide_type == SlideType.data
+    # last slide → closing
+    assert plans[1].planned_layout == "closing → template slide 20"
+    assert plans[1].template_slide_index == 20
     assert AssetType.chart in plans[1].asset_types
 
 

@@ -22,6 +22,9 @@ export interface SlidePlan {
   plannedLayout: string;
   assetTypes: AssetType[];
   restructureNote?: string;
+  templateSlideIndex?: number;
+  layoutCategory?: string;
+  overflowFlagged?: boolean;
 }
 
 export interface TransformedSlide {
