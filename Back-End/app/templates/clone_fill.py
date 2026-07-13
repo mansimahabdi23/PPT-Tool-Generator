@@ -6,7 +6,8 @@ Strategy
 2. Register image part relationships (logo, etc.) in the output package.
 3. Replace the title run text in TextBox 5, preserving run formatting.
 4. Inject a new body textbox inside Rounded Rectangle 1's bounding box.
-5. Overflow: shrink 12 pt → 11 pt → 10 pt; flag if still overflowing.
+5. Overflow: use normAutofit so PowerPoint/LibreOffice shrinks if needed;
+   only flag slides that are genuinely extreme (> _EXTREME_OVERFLOW items).
 
 Public API
 ----------
@@ -17,7 +18,6 @@ clone_body_block_slide(template_prs, out_prs, title, body_items, slide_number) -
 from __future__ import annotations
 
 import logging
-import math
 from copy import deepcopy
 from pathlib import Path
 from typing import Any
@@ -40,7 +40,8 @@ logger = logging.getLogger(__name__)
 _TEMPLATE_SLIDE_IDX = 4
 
 # OOXML namespace URIs
-_R = "http://schemas.openxmlformats.org/officeDocument/2006/relationships"
+_A_NS = "http://schemas.openxmlformats.org/drawingml/2006/main"
+_R    = "http://schemas.openxmlformats.org/officeDocument/2006/relationships"
 
 # Body box geometry: Rounded Rectangle 1 bounds with 0.2in (182 880 EMU) inset
 #   Rounded Rectangle 1: x=407 306, y=976 393, cx=11 375 996, cy=5 131 799
@@ -50,13 +51,20 @@ _BODY_TOP    = 976_393  + _PAD          # 1 159 273 EMU
 _BODY_WIDTH  = 11_375_996 - 2 * _PAD   # 11 010 236 EMU
 _BODY_HEIGHT = 5_131_799  - 2 * _PAD   #  4 766 039 EMU
 
-# Font-size cascade (pt) — try largest first; shrink if text overflows box
-_FONT_CASCADE = (12, 11, 10)
+# Body font: fixed 12 pt Poppins; normAutofit handles any real overflow in PowerPoint.
+_BODY_FONT_PT = 12
 
-# Overflow estimation parameters
-_LINE_SPACING  = 1.35   # multiplier over font size
-_PARA_SPACE_PT = 4.0    # space_before between bullets (pt)
-_CHAR_W_RATIO  = 0.55   # avg Poppins char width = font_pt × ratio
+# Spacing: 140 % line spacing; 8 pt space_before between bullets.
+_LINE_SPACING_PCT = 140_000   # OOXML spcPct val: 140 000 = 140%
+_PARA_SPACE_PT    = 8
+
+# Flag slides only when content is genuinely extreme (no layout can hold it).
+# Matches _OVERFLOW_FLAG_THRESHOLD in layout_catalog.py.
+_EXTREME_OVERFLOW = 12
+
+# Text-body insets (EMU): 0.1 in on all sides; combined with the 0.2 in box
+# padding this gives the text ~0.3 in clearance from the rounded-rect edge.
+_INSET_EMU = 91_440   # 0.1 in = 91 440 EMU
 
 # spTree structural tags — never copied or removed by mistake
 _STRUCT_TAGS = {qn("p:nvGrpSpPr"), qn("p:grpSpPr")}
@@ -134,59 +142,87 @@ def _update_slide_number(sp_tree: Any, slide_number: int) -> None:
             return
 
 
-def _overflows(items: list[str], font_pt: float) -> bool:
-    """Estimate whether *items* exceed the body box at *font_pt*."""
-    width_pt  = _BODY_WIDTH  / 12_700   # EMU → pt (12 700 EMU = 1 pt)
-    height_pt = _BODY_HEIGHT / 12_700
+def _style_body_frame(tf: Any) -> None:
+    """Apply vertical centering, insets, and normAutofit to a text frame.
 
-    chars_per_line = max(1.0, width_pt / (font_pt * _CHAR_W_RATIO))
-    line_ht_pt     = font_pt * _LINE_SPACING
-    lines_avail    = height_pt / line_ht_pt
+    normAutofit tells PowerPoint to shrink the font automatically if the text
+    exceeds the box — a reliable native behaviour that replaces the previous
+    Python estimation cascade.  The box size stays fixed so the layout is
+    always preserved.
+    """
+    txBody = tf._txBody
+    bodyPr = txBody.find(qn("a:bodyPr"))
+    if bodyPr is None:
+        bodyPr = etree.SubElement(txBody, qn("a:bodyPr"))
 
-    lines_used = 0.0
-    for i, item in enumerate(items):
-        lines_used += max(1.0, math.ceil(len(item) / chars_per_line))
-        if i > 0:
-            lines_used += _PARA_SPACE_PT / line_ht_pt
+    # Vertical centering — text floats in the middle of the 5.21" tall box
+    bodyPr.set("anchor", "ctr")
+    # Fixed insets (0.1 in all sides; combined with 0.2 in box padding = 0.3 in clearance)
+    bodyPr.set("lIns", str(_INSET_EMU))
+    bodyPr.set("rIns", str(_INSET_EMU))
+    bodyPr.set("tIns", str(_INSET_EMU))
+    bodyPr.set("bIns", str(_INSET_EMU))
 
-    return lines_used > lines_avail
+    # Replace any existing autofit element with normAutofit so PowerPoint
+    # shrinks the font natively when the text genuinely overflows the box.
+    for tag in (qn("a:noAutofit"), qn("a:normAutofit"), qn("a:spAutoFit")):
+        for el in bodyPr.findall(tag):
+            bodyPr.remove(el)
+    bodyPr.append(
+        etree.fromstring(
+            f'<a:normAutofit xmlns:a="{_A_NS}"/>'
+        )
+    )
+
+
+def _set_para_spacing(para: Any, is_first: bool) -> None:
+    """Set 140 % line spacing and paragraph space_before on *para*."""
+    para.space_before = Pt(0) if is_first else Pt(_PARA_SPACE_PT)
+
+    pPr = para._p.get_or_add_pPr()
+    for old in pPr.findall(qn("a:lnSpc")):
+        pPr.remove(old)
+    pPr.append(
+        etree.fromstring(
+            f'<a:lnSpc xmlns:a="{_A_NS}">'
+            f'<a:spcPct val="{_LINE_SPACING_PCT}"/>'
+            f"</a:lnSpc>"
+        )
+    )
 
 
 def _inject_body(slide: Any, body_items: list[str]) -> bool:
     """Add a body textbox to *slide* at the body-box geometry.
 
-    Tries each font size in _FONT_CASCADE (12 → 11 → 10 pt).  If even 10 pt
-    overflows, renders at 10 pt and returns True (overflow_flagged).
-    """
-    chosen_pt = _FONT_CASCADE[-1]  # default to minimum if nothing fits
-    overflow_flagged = True
+    Uses a fixed 12 pt Poppins font with normAutofit so PowerPoint/LibreOffice
+    shrinks the text automatically if it genuinely overflows.  Only flags a
+    slide when the item count is extreme (> _EXTREME_OVERFLOW), matching the
+    plan-stage threshold so the signal is coherent end-to-end.
 
-    for pt in _FONT_CASCADE:
-        if not _overflows(body_items, float(pt)):
-            chosen_pt = pt
-            overflow_flagged = False
-            break
+    Returns True when the slide is flagged for human review.
+    """
+    overflow_flagged = len(body_items) > _EXTREME_OVERFLOW
+    if overflow_flagged:
+        logger.warning(
+            "clone_body_block: %d items exceeds threshold %d — slide flagged",
+            len(body_items), _EXTREME_OVERFLOW,
+        )
 
     txBox = slide.shapes.add_textbox(
         Emu(_BODY_LEFT), Emu(_BODY_TOP), Emu(_BODY_WIDTH), Emu(_BODY_HEIGHT)
     )
     tf = txBox.text_frame
     tf.word_wrap = True
+    _style_body_frame(tf)
 
     for i, item in enumerate(body_items):
         para = tf.paragraphs[0] if i == 0 else tf.add_paragraph()
-        para.space_before = Pt(0) if i == 0 else Pt(4)
+        _set_para_spacing(para, is_first=(i == 0))
         run = para.add_run()
         run.text = item
         run.font.name  = brand.POPPINS
-        run.font.size  = Pt(chosen_pt)
+        run.font.size  = Pt(_BODY_FONT_PT)
         run.font.color.rgb = RGBColor(0x11, 0x18, 0x27)
-
-    if overflow_flagged:
-        logger.warning(
-            "clone_body_block: %d items overflow at %d pt — slide flagged",
-            len(body_items), _FONT_CASCADE[-1],
-        )
 
     return overflow_flagged
 

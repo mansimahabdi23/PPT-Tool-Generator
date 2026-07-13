@@ -31,6 +31,7 @@ BRAND_ORANGE: str = "FF4A00"  # primary accent, titles
 BRAND_ORANGE_DEEP: str = "FD5B0E"  # CTAs, highlights
 BRAND_PURPLE: str = "481AEC"  # secondary accent, diagrams
 BRAND_PURPLE_BASE: str = "7C3AED"  # secondary surfaces
+BRAND_PURPLE_LIGHT: str = "826FFF"  # template decorative fill (rounded rectangle at 10% opacity)
 BRAND_INDIGO: str = "6366F1"  # gradient partner
 INK: str = "111827"  # text, dark surfaces
 SURFACE: str = "F3F4F6"  # light surfaces
@@ -46,6 +47,7 @@ ALLOWED_COLORS: frozenset[str] = frozenset(
         BRAND_ORANGE_DEEP,
         BRAND_PURPLE,
         BRAND_PURPLE_BASE,
+        BRAND_PURPLE_LIGHT,
         BRAND_INDIGO,
         INK,
         SURFACE,
