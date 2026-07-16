@@ -20,13 +20,14 @@ from __future__ import annotations
 
 import json
 import logging
+import re
 import uuid
 from typing import Any, Protocol, runtime_checkable
 
-from app.models.enums import AssetType, SlideType
+from app.models.enums import AssetType, FragmentIntent, SlideType
 from app.models.job import SlidePlan
 from app.services.parser import ParsedDeck, ParsedSlide
-from app.templates.layout_catalog import select_catalog_entry
+from app.templates.layout_catalog import SHORT_LABEL_MAX_WORDS, select_catalog_entry
 
 logger = logging.getLogger(__name__)
 
@@ -79,6 +80,87 @@ def _apply_catalog(
     })
 
 
+# ---------------------------------------------------------------------------
+# Stub intent classifier — keyword heuristic, no LLM.
+#
+# Design rules:
+#   · Title signals are checked first and carry more weight than bullets —
+#     a title describes the slide's PURPOSE; bullets are supporting detail.
+#   · data-chart uses TWO separate vocabularies: a broader one for titles
+#     (where "data" is a strong signal: "Data Analytics Dashboard") and a
+#     narrower one for bullets (where "data", "growth", "score", "rate" appear
+#     in ordinary business prose and cause false positives).
+#   · parallel-features is the catch-all for short labels with no stronger
+#     signal — it fires last, never before a more specific classification.
+#   · The real AzureOpenAIProvider uses LLM judgment instead of these keywords.
+# ---------------------------------------------------------------------------
+
+_SEQUENTIAL_WORDS = frozenset({
+    "step", "steps", "stage", "stages", "phase", "phases",
+    "process", "flow", "journey", "workflow", "progression",
+    "sequence", "procedure",
+})
+
+# Chart-specific; "data" is safe here — a title like "Data Analytics Overview"
+# clearly signals a data slide.
+_DATA_WORDS_TITLE = frozenset({
+    "chart", "charts", "metric", "metrics", "kpi", "kpis",
+    "analytics", "dashboard", "statistics", "percentage",
+    "donut", "pie", "gauge", "data",
+})
+
+# Bullets-only: deliberately excludes "data", "growth", "score", "rate",
+# "revenue", "trends", "figures" — all appear in normal business prose and
+# produce false-positive data-chart classifications on informational slides.
+_DATA_WORDS_BULLETS = frozenset({
+    "chart", "charts", "metric", "metrics", "kpi", "kpis",
+    "analytics", "dashboard", "statistics", "percentage",
+    "donut", "pie", "gauge",
+})
+
+_HIERARCHY_WORDS = frozenset({
+    "hierarchy", "pyramid", "taxonomy", "levels", "tier", "tiers",
+    "classification", "organization", "org",
+})
+_TIMELINE_WORDS = frozenset({"timeline", "milestone", "milestones"})
+_ROADMAP_WORDS  = frozenset({"roadmap", "quarters"})
+
+
+def _classify_intent_stub(slide: ParsedSlide) -> FragmentIntent | None:
+    """Deterministic keyword-heuristic intent for offline StubProvider.
+
+    Returns None when no signal is strong enough — the slide goes to body-block.
+    Only called for non-cover/non-closing content slides.
+
+    Title words are checked with a broader vocabulary; bullet words with a
+    narrower one.  This prevents common business prose ("data across systems",
+    "revenue growth") from triggering data-chart on informational slides.
+    """
+    items = slide.body_items or []
+    if not items:
+        return None
+
+    title_words  = set(re.findall(r"\w+", (slide.title or "").lower()))
+    bullet_words = set(re.findall(r"\w+", " ".join(items).lower()))
+    all_words    = title_words | bullet_words
+
+    # data-chart: title-weighted — check title with broader set, bullets with narrow set
+    if (title_words & _DATA_WORDS_TITLE) or (bullet_words & _DATA_WORDS_BULLETS):
+        return FragmentIntent.data_chart
+    if all_words & _ROADMAP_WORDS:
+        return FragmentIntent.roadmap
+    if all_words & _TIMELINE_WORDS:
+        return FragmentIntent.timeline
+    if all_words & _HIERARCHY_WORDS:
+        return FragmentIntent.hierarchy
+    if all_words & _SEQUENTIAL_WORDS:
+        return FragmentIntent.sequential_process
+    # Fallback: all short labels with no stronger signal → unordered parallel features
+    if all(len(item.split()) <= SHORT_LABEL_MAX_WORDS for item in items):
+        return FragmentIntent.parallel_features
+    return None
+
+
 _LAYOUT_MAP: dict[SlideType, str] = {
     SlideType.title:   "Full-bleed cover with title, subtitle, and logo",
     SlideType.agenda:  "Numbered agenda list with section highlights",
@@ -129,7 +211,14 @@ class StubProvider:
                 asset_types=_ASSET_TYPE_MAP.get(slide_type, [AssetType.template]),
                 restructure_note=note,
             )
-            plans.append(_apply_catalog(plan, slide, is_first=(i == 0), is_last=(i == last)))
+            plan = _apply_catalog(plan, slide, is_first=(i == 0), is_last=(i == last))
+            # Classify infographic intent for content-type slides (stub heuristic).
+            # Cover and closing do not receive intent; body-block is their path.
+            if plan.layout_category not in ("cover", "closing"):
+                intent = _classify_intent_stub(slide)
+                if intent is not None:
+                    plan = plan.model_copy(update={"required_intent": intent})
+            plans.append(plan)
         return plans
 
 
@@ -140,6 +229,11 @@ class StubProvider:
 # Strict JSON schema for one SlidePlan entry.
 # OpenAI structured outputs require: all properties in "required",
 # additionalProperties=false, nullable via anyOf.
+_INTENT_ENUM = [
+    "parallel-features", "sequential-process", "timeline", "hierarchy",
+    "data-chart", "comparison", "single-stat", "roadmap", "geographic",
+]
+
 _SLIDE_PLAN_SCHEMA: dict[str, Any] = {
     "type": "object",
     "properties": {
@@ -158,8 +252,17 @@ _SLIDE_PLAN_SCHEMA: dict[str, Any] = {
             },
         },
         "restructureNote": {"anyOf": [{"type": "string"}, {"type": "null"}]},
+        "requiredIntent":  {
+            "anyOf": [
+                {"type": "string", "enum": _INTENT_ENUM},
+                {"type": "null"},
+            ],
+        },
     },
-    "required": ["id", "index", "slideType", "plannedLayout", "assetTypes", "restructureNote"],
+    "required": [
+        "id", "index", "slideType", "plannedLayout",
+        "assetTypes", "restructureNote", "requiredIntent",
+    ],
     "additionalProperties": False,
 }
 
@@ -201,6 +304,29 @@ plannedLayout: 10–25-word human-readable description of the target iMocha layo
 restructureNote: null when allow_restructure is false. When true, optionally suggest \
 reordering or merging with adjacent slides for better narrative flow — or null if \
 no change is needed.
+
+requiredIntent: Classify the STRUCTURAL INTENT of each content slide's bullet items. \
+This is a HARD filter — only infographic fragments with a matching intent will be \
+considered. Use exactly one of the values below, or null if none clearly applies \
+(the slide will then render as body-block text):
+
+- "parallel-features"  : Unordered, equal-weight items — capabilities, features, benefits.
+                         Example: "AI Skills Engine | Conversational Assistant | Job Profile Creator"
+- "sequential-process" : Ordered steps, stages, or workflow phases that must be read in sequence.
+                         Example: "Step 1: Assess → Step 2: Gap-analyse → Step 3: Upskill"
+- "timeline"           : Chronological milestones on a time axis (dates, quarters, years).
+- "hierarchy"          : Tree, pyramid, or org structure with clear parent→child levels.
+- "data-chart"         : Slide content is metrics, KPIs, percentages, or chart data.
+- "comparison"         : Explicit side-by-side A vs B contrast.
+- "single-stat"        : One key number, person, or callout dominates the slide.
+- "roadmap"            : Roadmap grid — time (quarters/months) × workstream rows.
+- "geographic"         : Regional or map-based content.
+
+Rules:
+- Return null for title, agenda, divider, and closing slides (they never use infographics).
+- Return null when the bullets are full sentences (long paragraphs) — those render as body-block.
+- Choose the STRONGEST signal. If bullets are short labels with no sequential keywords, \
+  prefer "parallel-features" over null.
 
 Return JSON matching the schema exactly. Use a fresh UUID for each id field.\
 """
@@ -305,7 +431,19 @@ class AzureOpenAIProvider:
                         asset_types=[AssetType(a) for a in entry.get("assetTypes", [])],
                         restructure_note=entry.get("restructureNote"),
                     )
-                    plans.append(_apply_catalog(plan, slide, is_first=(i == 0), is_last=(i == last)))
+                    plan = _apply_catalog(plan, slide, is_first=(i == 0), is_last=(i == last))
+                    raw_intent = entry.get("requiredIntent")
+                    if raw_intent is not None:
+                        try:
+                            plan = plan.model_copy(
+                                update={"required_intent": FragmentIntent(raw_intent)}
+                            )
+                        except ValueError:
+                            logger.warning(
+                                "Slide %d: unknown requiredIntent %r from LLM — ignoring",
+                                i, raw_intent,
+                            )
+                    plans.append(plan)
                 except (KeyError, ValueError) as exc:
                     logger.warning(
                         "Bad plan entry for slide %d (%s) — using stub", i, exc

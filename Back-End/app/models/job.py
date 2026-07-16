@@ -2,7 +2,7 @@
 
 
 from .base import CamelModel
-from .enums import ApprovalState, AssetType, JobStatus, SlideType
+from .enums import ApprovalState, AssetType, FragmentIntent, JobStatus, SlideTheme, SlideType
 
 
 class SlidePlan(CamelModel):
@@ -18,6 +18,7 @@ class SlidePlan(CamelModel):
     template_slide_index: int | None = None   # 1-based index into iMocha_PPT_Template_New__2026_.pptx
     layout_category: str | None = None        # LayoutCategory literal (e.g. "body-block", "cards")
     overflow_flagged: bool = False            # True when item count exceeds body-block capacity
+    required_intent: FragmentIntent | None = None  # hard filter for infographic retrieval; None = body-block
 
 
 class TransformedSlide(CamelModel):
@@ -32,6 +33,8 @@ class TransformedSlide(CamelModel):
     change_chips: list[str]
     approval: ApprovalState
     retry_count: int | None = None
+    theme: SlideTheme = SlideTheme.light
+    theme_toggleable: bool = True
 
 
 class TransformJob(CamelModel):

@@ -19,8 +19,10 @@ from typing import Annotated
 
 from fastapi import APIRouter, Depends, Form, HTTPException, Query, Response, UploadFile
 
+from pydantic import BaseModel
+
 from app.models.auth import UserIdentity
-from app.models.enums import ApprovalState, JobStatus
+from app.models.enums import ApprovalState, JobStatus, SlideTheme
 from app.models.job import SlidePlan, TransformedSlide, TransformJob
 from app.models.responses import JobCreatedResponse, JobResult
 from app.services import store as job_store
@@ -30,6 +32,11 @@ from app.services.exporter import OUT_ROOT
 from app.services.job_engine import get_engine
 from app.services.pipeline import run_segment_a, run_segment_b
 from app.services.store import JobRecord
+
+
+class _SlideThemeBody(BaseModel):
+    theme: SlideTheme
+
 
 CurrentUser = Annotated[UserIdentity, Depends(get_current_user)]
 
@@ -236,6 +243,8 @@ async def regenerate_slide(job_id: str, slide_id: str, user: CurrentUser) -> Tra
         change_chips=sorted({*target.change_chips, "Regenerated"}),
         approval=ApprovalState.pending,
         retry_count=(target.retry_count or 0) + 1,
+        theme=target.theme,
+        theme_toggleable=target.theme_toggleable,
     )
     new_slides = [updated if s.id == slide_id else s for s in record.slides]
     job_store.update(job_id, slides=new_slides)
@@ -249,6 +258,113 @@ async def regenerate_slide(job_id: str, slide_id: str, user: CurrentUser) -> Tra
         user_email=user.email,
         metadata={"job_id": job_id, "retry_count": updated.retry_count or 0},
     ))
+    return updated
+
+
+# ---------------------------------------------------------------------------
+# PATCH /api/jobs/{job_id}/slides/{slide_id}/theme — per-slide theme toggle
+# ---------------------------------------------------------------------------
+
+@router.patch("/{job_id}/slides/{slide_id}/theme", response_model=TransformedSlide)
+async def set_slide_theme(
+    job_id: str,
+    slide_id: str,
+    body: _SlideThemeBody,
+    user: CurrentUser,
+) -> TransformedSlide:
+    """Set the light/dark theme for a single slide, re-render its preview PNG.
+
+    The slide is recomposed from the cached ParsedDeck using the new theme and
+    its preview image is overwritten.  If the ParsedDeck is no longer in memory
+    (server restart) the theme is updated on the record but the PNG stays as-is
+    until the next full compose.
+
+    Guards: 404 for unknown job/slide; 409 if job not yet completed; 400 if
+    the slide does not support theme toggling (infographic/cover/closing).
+    """
+    record = job_store.get(job_id)
+    if record is None:
+        raise HTTPException(status_code=404, detail="Job not found")
+    if record.status != JobStatus.completed:
+        raise HTTPException(
+            status_code=409,
+            detail=f"Cannot set theme: job is in state '{record.status}', expected 'completed'",
+        )
+    if not record.slides:
+        raise HTTPException(status_code=409, detail="Job has no slides")
+
+    target = next((s for s in record.slides if s.id == slide_id), None)
+    if target is None:
+        raise HTTPException(status_code=404, detail="Slide not found")
+
+    if not target.theme_toggleable:
+        raise HTTPException(
+            status_code=400,
+            detail="Theme toggle is not available for this slide type",
+        )
+
+    new_theme = body.theme
+    updated = target.model_copy(update={"theme": new_theme})
+
+    # Re-render the preview PNG from the cached ParsedDeck when available.
+    if record._parsed is not None and record.plan is not None:
+        parsed = record._parsed
+        ps = next((s for s in parsed.slides if s.index == target.index), None)
+        plan_entry = next((p for p in record.plan if p.index == target.index), None)
+
+        if ps is not None:
+            from app.config import settings
+            from app.services.composer import compose_single_slide
+            from app.services.exporter import OUT_ROOT, render_single_slide_png
+            from app.templates.clone_fill import load_template as _load_template
+
+            try:
+                tmpl_prs = _load_template(settings.template_pptx)
+                temp_prs, _ = compose_single_slide(
+                    parsed_slide=ps,
+                    plan_entry=plan_entry,
+                    assets_root=settings.assets_root,
+                    template_prs=tmpl_prs,
+                    theme_str=new_theme.value,
+                )
+
+                # Save temp 1-slide PPTX and render it
+                temp_dir = OUT_ROOT / job_id / "temp"
+                temp_dir.mkdir(parents=True, exist_ok=True)
+                temp_pptx = temp_dir / f"theme_slide_{target.index}.pptx"
+                temp_prs.save(str(temp_pptx))
+
+                preview_dir = OUT_ROOT / job_id / "previews" / "transformed"
+                target_png = preview_dir / f"slide-{target.index + 1}.png"
+                ok = render_single_slide_png(temp_pptx, target_png)
+                if ok:
+                    logger.info(
+                        "[%s] Slide %s preview re-rendered (theme=%s)",
+                        job_id, slide_id, new_theme.value,
+                    )
+                else:
+                    logger.warning(
+                        "[%s] Slide %s re-render skipped (tools unavailable)",
+                        job_id, slide_id,
+                    )
+            except Exception:
+                logger.exception(
+                    "[%s] Slide %s theme re-render failed — theme stored, preview unchanged",
+                    job_id, slide_id,
+                )
+
+    new_slides = [updated if s.id == slide_id else s for s in record.slides]
+    job_store.update(job_id, slides=new_slides)
+
+    get_audit_logger().log(AuditEvent(
+        action="slide.theme_changed",
+        resource_type="slide",
+        resource_id=slide_id,
+        user_id=user.user_id,
+        user_email=user.email,
+        metadata={"job_id": job_id, "theme": new_theme.value},
+    ))
+
     return updated
 
 

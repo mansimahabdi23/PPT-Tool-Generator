@@ -22,6 +22,8 @@ const makeSlide = (i: number, chips: string[], opts: Partial<TransformedSlide> =
   contentUnchanged: true,
   changeChips: chips,
   approval: 'pending',
+  theme: 'light',
+  themeToggleable: true,
   ...opts,
 });
 

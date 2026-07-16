@@ -123,6 +123,56 @@ def render_previews(
         return []
 
 
+def render_single_slide_png(pptx_path: Path, output_png: Path) -> bool:
+    """Render the first (only) slide of *pptx_path* to *output_png*.
+
+    Overwrites *output_png* when it already exists.  Returns True on success.
+    Non-fatal: logs and returns False when LibreOffice or pdftoppm are
+    unavailable, leaving the previous PNG in place.
+    """
+    try:
+        pdftoppm = shutil.which("pdftoppm")
+        if pdftoppm is None:
+            logger.warning("pdftoppm not found — single-slide re-render skipped")
+            return False
+
+        # Render via a temp PDF in the same directory as the pptx
+        pdf = _try_libreoffice_pdf(pptx_path, pptx_path.parent)
+        if pdf is None:
+            return False
+
+        output_png.parent.mkdir(parents=True, exist_ok=True)
+        prefix = str(output_png.with_suffix(""))
+        result = subprocess.run(
+            [pdftoppm, "-r", "150", "-png", "-l", "1", str(pdf), prefix],
+            capture_output=True,
+            text=True,
+            timeout=60,
+        )
+        if result.returncode != 0:
+            logger.error("pdftoppm failed for single slide: %s", result.stderr or result.stdout)
+            return False
+
+        # pdftoppm writes <prefix>-1.png / <prefix>-01.png / <prefix>-001.png
+        stem = output_png.stem
+        for candidate in [
+            output_png.with_name(f"{stem}-1.png"),
+            output_png.with_name(f"{stem}-01.png"),
+            output_png.with_name(f"{stem}-001.png"),
+        ]:
+            if candidate.exists():
+                if candidate != output_png:
+                    candidate.replace(output_png)
+                return True
+
+        logger.warning("render_single_slide_png: output PNG not found after pdftoppm run")
+        return False
+
+    except Exception:
+        logger.exception("render_single_slide_png failed for %s", pptx_path)
+        return False
+
+
 # ---------------------------------------------------------------------------
 # Internal helpers
 # ---------------------------------------------------------------------------

@@ -1,3 +1,16 @@
+export type SlideTheme = 'light' | 'dark';
+
+export type FragmentIntent =
+  | 'parallel-features'
+  | 'sequential-process'
+  | 'timeline'
+  | 'hierarchy'
+  | 'data-chart'
+  | 'comparison'
+  | 'single-stat'
+  | 'roadmap'
+  | 'geographic';
+
 export type JobStatus =
   | 'parsing'
   | 'analyzing'
@@ -25,6 +38,7 @@ export interface SlidePlan {
   templateSlideIndex?: number;
   layoutCategory?: string;
   overflowFlagged?: boolean;
+  requiredIntent?: FragmentIntent;
 }
 
 export interface TransformedSlide {
@@ -37,6 +51,8 @@ export interface TransformedSlide {
   changeChips: string[];
   approval: ApprovalState;
   retryCount?: number;
+  theme: SlideTheme;
+  themeToggleable: boolean;
 }
 
 export interface TransformJob {

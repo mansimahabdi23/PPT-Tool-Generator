@@ -29,7 +29,7 @@ from dataclasses import dataclass, replace
 from typing import Any
 
 from app.models.asset import BrandAsset, BrandAssetUpdate
-from app.models.enums import AssetSlot, AssetStatus, AssetType
+from app.models.enums import AssetSlot, AssetStatus, AssetType, FragmentIntent
 
 # ---------------------------------------------------------------------------
 # Embedding — hash-trick bag-of-words, 64 dims, deterministic, no ML deps
@@ -95,6 +95,8 @@ class AssetRecord:
     width_emu: int | None
     height_emu: int | None
     embedding: list[float]
+    intent: FragmentIntent | None = None       # structural intent; None for icons
+    has_description: bool = False              # True when each slot has headline + prose body area
 
     @classmethod
     def build(
@@ -113,6 +115,8 @@ class AssetRecord:
         width_emu: int | None = None,
         height_emu: int | None = None,
         asset_id: str | None = None,
+        intent: "FragmentIntent | None" = None,
+        has_description: bool = False,
     ) -> "AssetRecord":
         """Convenience constructor — computes embedding from name + tags."""
         effective_tags = tags or []
@@ -132,6 +136,8 @@ class AssetRecord:
             width_emu=width_emu,
             height_emu=height_emu,
             embedding=_embed(embed_text),
+            intent=intent,
+            has_description=has_description,
         )
 
 
@@ -219,27 +225,42 @@ class InMemoryAssetStore:
         item_count: int | None = None,
         query_text: str = "",
         asset_type: AssetType | None = None,
+        tags_include: list[str] | None = None,
         k: int = 5,
+        item_count_exact: bool = False,
+        intent_filter: "FragmentIntent | None" = None,
     ) -> list[BrandAsset]:
         """Return up to k approved assets that fit the slot and item_count.
 
         Step 1 — deterministic filter (structural guarantee):
           · status == approved       (only approved ever returned)
           · slot == requested slot
-          · max_items is None OR max_items >= item_count
+          · max_items fits item_count: exact match when item_count_exact=True
+            (max_items == item_count), otherwise max_items is None OR >= item_count
           · type matches if provided
+          · all tags_include tags present (if provided)
+          · intent matches intent_filter exactly when provided (hard constraint)
 
         Step 2 — vector rank on survivors:
           · cosine similarity between query_text embedding and asset embedding
           · highest similarity first
         """
+        def _fits(r: AssetRecord) -> bool:
+            if item_count is None:
+                return True
+            if item_count_exact:
+                return r.max_items == item_count
+            return r.max_items is None or r.max_items >= item_count
+
         # Step 1: deterministic filter
         candidates = [
             r for r in self._records.values()
             if r.status == AssetStatus.approved
             and r.slot == slot
-            and (item_count is None or r.max_items is None or r.max_items >= item_count)
+            and _fits(r)
             and (asset_type is None or r.type == asset_type)
+            and (tags_include is None or all(t in r.tags for t in tags_include))
+            and (intent_filter is None or r.intent == intent_filter)
         ]
 
         if not candidates:

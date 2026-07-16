@@ -24,11 +24,12 @@ LayoutCategory = Literal[
     "body-subheading",
 ]
 
-# Cards guard: EVERY item must have at most this many words (whitespace-split).
-# Full sentences (6-9 words) must not qualify; only noun-phrase labels should.
-# Empirical: slide 5 labels are 3-4 words; full-sentence bullets on slides 2-9
-# include 5-6 word items — so ≤ 5 words is the correct dividing line.
-_MAX_WORDS_PER_CARD_ITEM = 5
+# Shared short-label threshold — used by BOTH the catalog (Rule 3 cards guard)
+# and the composer (_all_short_labels / _try_infographic).  Kept in one place so
+# the two systems can never diverge again.  Items with ≤ SHORT_LABEL_MAX_WORDS
+# words are noun-phrase labels suitable for card/infographic layouts; items with
+# more words are full sentences that belong in body-block text.
+SHORT_LABEL_MAX_WORDS = 6
 
 # body-subheading: first item must be at most this many words (short subtitle/tagline)
 _SUBTITLE_MAX_WORDS = 4
@@ -162,7 +163,7 @@ def select_catalog_entry(
     # "Short" = every item is a noun-phrase label, not a full sentence.
     # Guard: ALL items must have ≤ _MAX_WORDS_PER_CARD_ITEM words.
     if 3 <= count <= 5:
-        if all(len(item.split()) <= _MAX_WORDS_PER_CARD_ITEM for item in items):
+        if all(len(item.split()) <= SHORT_LABEL_MAX_WORDS for item in items):
             card = _CARDS_BY_COUNT.get(count)
             if card is not None:
                 return card, False

@@ -12,7 +12,7 @@ from __future__ import annotations
 
 import uuid
 
-from app.models.enums import ApprovalState
+from app.models.enums import ApprovalState, SlideTheme
 from app.models.job import SlidePlan, TransformedSlide
 from app.services.content_diff import ContentDiffResult
 from app.services.parser import ParsedDeck
@@ -26,6 +26,8 @@ def build_slides(
     transformed_preview_urls: list[str] | None = None,
     flagged_indices: set[int] | None = None,
     retry_count: int = 0,
+    infographic_indices: set[int] | None = None,
+    slide_themes: dict[int, str] | None = None,
 ) -> list[TransformedSlide]:
     """Build one TransformedSlide per parsed slide.
 
@@ -52,6 +54,8 @@ def build_slides(
         Number of compose→validate cycles executed (0 = passed first try).
     """
     flagged = flagged_indices or set()
+    infographics = infographic_indices or set()
+    themes = slide_themes or {}
     global_content_ok = content_result.passed
 
     plan_by_index = {p.index: p for p in plan}
@@ -84,6 +88,21 @@ def build_slides(
             else ""
         )
 
+        # Theme toggle is available only on body-block non-infographic slides.
+        # Cover (title type) and infographic slides are always rendered from their
+        # fixed template/fragment layouts so the toggle is disabled for them.
+        layout_category = plan_entry.layout_category if plan_entry else None
+        slide_type_val = plan_entry.slide_type if plan_entry else ps.slide_type
+        from app.models.enums import SlideType
+        theme_toggleable = (
+            layout_category == "body-block"
+            and i not in infographics
+            and slide_type_val != SlideType.title
+        )
+
+        theme_str = themes.get(i, "light")
+        slide_theme = SlideTheme.dark if theme_str == "dark" else SlideTheme.light
+
         slides.append(TransformedSlide(
             id=str(uuid.uuid4()),
             index=i,
@@ -94,6 +113,8 @@ def build_slides(
             change_chips=chips,
             approval=approval,
             retry_count=retry_count,
+            theme=slide_theme,
+            theme_toggleable=theme_toggleable,
         ))
 
     return slides

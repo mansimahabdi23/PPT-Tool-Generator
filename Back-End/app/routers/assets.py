@@ -9,8 +9,10 @@ from __future__ import annotations
 import uuid
 from typing import Annotated
 
-from fastapi import APIRouter, Depends, Form, Query, UploadFile
+from fastapi import APIRouter, Depends, Form, HTTPException, Query, UploadFile
+from fastapi.responses import FileResponse
 
+from app.config import settings
 from app.models.asset import BrandAsset, BrandAssetUpdate
 from app.models.auth import Role, UserIdentity
 from app.models.enums import AssetSlot, AssetStatus, AssetType
@@ -77,6 +79,32 @@ async def create_asset(
         tags=record.tags,
         thumbnail_url=record.thumbnail_url,
     )
+
+
+@router.get("/{asset_id}/thumbnail")
+async def get_asset_thumbnail(
+    asset_id: str,
+    _user: CurrentUser = None,  # type: ignore[assignment]
+) -> FileResponse:
+    """Serve the raw image file for an asset thumbnail.
+
+    For icon assets (type=icon), the file lives at assets/icons/{stem}.png
+    where stem is derived from the asset_id (e.g. "icon-people_3" → "people_3.png").
+    Returns 404 when the asset is unknown or has no file on disk.
+    """
+    record = get_store().get(asset_id)
+    if record is None:
+        raise HTTPException(status_code=404, detail=f"Asset {asset_id!r} not found")
+
+    # Icon assets: assets/icons/{stem}.png  (asset_id = "icon-{stem}")
+    if record.type == AssetType.icon and asset_id.startswith("icon-"):
+        stem = asset_id[len("icon-"):]
+        path = settings.assets_root / "icons" / f"{stem}.png"
+        if not path.is_file():
+            raise HTTPException(status_code=404, detail="Thumbnail file not found on disk")
+        return FileResponse(path, media_type="image/png")
+
+    raise HTTPException(status_code=404, detail="No thumbnail available for this asset type")
 
 
 @router.patch("/{asset_id}", response_model=BrandAsset)

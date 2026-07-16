@@ -9,9 +9,12 @@ import {
   Layers,
   ArrowRight,
   Loader2,
+  Sun,
+  Moon,
 } from "lucide-react";
 import { toast } from "sonner";
-import { getSlides, getJob, regenerateSlide, setSlideApproval } from "@/lib/api";
+import { API, getSlides, getJob, regenerateSlide, setSlideApproval, setSlideTheme } from "@/lib/api";
+import type { SlideTheme } from "@/types";
 import { PageHeader } from "@/components/PageHeader";
 import { Skeleton } from "@/components/ui/skeleton";
 import {
@@ -35,6 +38,7 @@ function ReviewPage() {
   const navigate = useNavigate();
   const qc = useQueryClient();
   const [editorOpen, setEditorOpen] = useState<number | null>(null);
+  const [themeLoadingFor, setThemeLoadingFor] = useState<string | null>(null);
 
   const { data: job } = useQuery({
     queryKey: ["job", jobId],
@@ -80,6 +84,29 @@ function ReviewPage() {
     },
   });
 
+  const themeMut = useMutation({
+    mutationFn: ({ slideId, theme }: { slideId: string; theme: SlideTheme }) => {
+      setThemeLoadingFor(slideId);
+      return setSlideTheme(jobId, slideId, theme);
+    },
+    onSuccess: (updated) => {
+      // Patch just the affected slide; add cache-buster so browser re-fetches the PNG.
+      qc.setQueryData<TransformedSlide[]>(["slides", jobId], (prev) =>
+        prev?.map((s) =>
+          s.id === updated.id
+            ? { ...updated, transformedPreviewUrl: updated.transformedPreviewUrl + `?t=${Date.now()}` }
+            : s,
+        ),
+      );
+      setThemeLoadingFor(null);
+      toast.success(`Slide theme set to ${updated.theme}`);
+    },
+    onError: () => {
+      setThemeLoadingFor(null);
+      toast.error("Failed to update theme");
+    },
+  });
+
   const approvedCount = slides?.filter((s) => s.approval === "approved").length ?? 0;
   const total = slides?.length ?? 0;
   const allApproved = total > 0 && approvedCount === total;
@@ -118,10 +145,12 @@ function ReviewPage() {
           <SlideCard
             key={slide.id}
             slide={slide}
+            isThemeLoading={themeLoadingFor === slide.id}
             onApprove={() => approveMut.mutate({ slideId: slide.id, approval: "approved" })}
             onFlag={() => approveMut.mutate({ slideId: slide.id, approval: "flagged" })}
             onRegen={() => regenMut.mutate(slide.id)}
             onEdit={() => setEditorOpen(slide.index)}
+            onThemeToggle={(theme) => themeMut.mutate({ slideId: slide.id, theme })}
           />
         ))}
       </div>
@@ -175,20 +204,25 @@ function ReviewPage() {
 
 function SlideCard({
   slide,
+  isThemeLoading,
   onApprove,
   onFlag,
   onRegen,
   onEdit,
+  onThemeToggle,
 }: {
   slide: TransformedSlide;
+  isThemeLoading: boolean;
   onApprove: () => void;
   onFlag: () => void;
   onRegen: () => void;
   onEdit: () => void;
+  onThemeToggle: (theme: SlideTheme) => void;
 }) {
   const isRegen = slide.approval === "regenerating";
   const isApproved = slide.approval === "approved";
   const isFlagged = slide.approval === "flagged";
+  const nextTheme: SlideTheme = slide.theme === "dark" ? "light" : "dark";
 
   return (
     <div
@@ -288,6 +322,33 @@ function SlideCard({
           >
             <Flag className="h-3.5 w-3.5" /> Flag
           </button>
+
+          {/* Theme toggle — enabled on body-block slides only */}
+          {slide.themeToggleable ? (
+            <button
+              onClick={() => onThemeToggle(nextTheme)}
+              disabled={isRegen || isThemeLoading}
+              title={`Switch to ${nextTheme} theme`}
+              className="inline-flex items-center gap-1.5 rounded-md border border-border bg-white px-3 py-1.5 text-xs font-semibold text-ink hover:bg-surface disabled:opacity-50"
+            >
+              {isThemeLoading ? (
+                <Loader2 className="h-3.5 w-3.5 animate-spin" />
+              ) : slide.theme === "dark" ? (
+                <Sun className="h-3.5 w-3.5 text-amber-500" />
+              ) : (
+                <Moon className="h-3.5 w-3.5 text-brand-purple" />
+              )}
+              {slide.theme === "dark" ? "Light" : "Dark"}
+            </button>
+          ) : (
+            <button
+              disabled
+              title="Theme toggle not available for this slide type"
+              className="inline-flex cursor-not-allowed items-center gap-1.5 rounded-md border border-border bg-white px-3 py-1.5 text-xs font-semibold text-muted-foreground opacity-40"
+            >
+              <Moon className="h-3.5 w-3.5" /> Dark
+            </button>
+          )}
         </div>
         <button
           onClick={onEdit}
@@ -319,7 +380,7 @@ function PreviewPanel({
       <div className="relative px-5 pb-5">
         <div className="overflow-hidden rounded-lg border border-border">
           {url ? (
-            <img src={url} alt={label} className="block aspect-video w-full object-cover" />
+            <img src={`${API}${url}`} alt={label} className="block aspect-video w-full object-cover" />
           ) : (
             <div className="flex aspect-video w-full items-center justify-center bg-surface text-sm text-muted-foreground">
               Preview unavailable

@@ -18,13 +18,15 @@
  */
 import type {
   BrandAsset,
+  SlideTheme,
   SlidePlan,
   TransformJob,
   TransformedSlide,
 } from '@/types';
 
 // Base URL for the FastAPI backend. Set VITE_API_URL in Front-End/.env.local to override.
-const API = import.meta.env.VITE_API_URL ?? 'http://localhost:8000';
+// Exported so components that render backend URLs directly (e.g. <img src>) can prefix them.
+export const API = import.meta.env.VITE_API_URL ?? 'http://localhost:8000';
 
 // ---------------------------------------------------------------------------
 // Job lifecycle
@@ -87,6 +89,20 @@ export async function setSlideApproval(
   const slide = job.slides?.find((s) => s.id === slideId);
   if (!slide) throw new Error('Slide not found');
   return { ...slide, approval };
+}
+
+export async function setSlideTheme(
+  jobId: string,
+  slideId: string,
+  theme: SlideTheme,
+): Promise<TransformedSlide> {
+  const res = await fetch(`${API}/api/jobs/${jobId}/slides/${slideId}/theme`, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ theme }),
+  });
+  if (!res.ok) throw new Error(`setSlideTheme failed: ${res.status}`);
+  return res.json() as Promise<TransformedSlide>;
 }
 
 export async function regenerateSlide(jobId: string, slideId: string): Promise<TransformedSlide> {

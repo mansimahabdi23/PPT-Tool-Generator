@@ -18,11 +18,12 @@ from __future__ import annotations
 
 import logging
 import time
+import uuid
 from pathlib import Path
 
 from app.config import settings
-from app.models.enums import AssetSlot, AssetType, JobStatus, SlideType
-from app.models.job import SlidePlan
+from app.models.enums import ApprovalState, AssetSlot, AssetType, JobStatus, SlideType
+from app.models.job import SlidePlan, TransformedSlide
 from app.services import store as job_store
 from app.services.asset_store import get_store
 from app.services.brand_lint import lint
@@ -239,7 +240,7 @@ def run_segment_b(job_id: str) -> None:
         # Load the template once; reuse across retries to avoid repeated I/O.
         from app.templates.clone_fill import load_template as _load_template
         tmpl_prs = _load_template(settings.template_pptx)
-        prs, compose_overflow = compose(parsed, plan, settings.assets_root, tmpl_prs)
+        prs, compose_overflow, infographic_indices = compose(parsed, plan, settings.assets_root, tmpl_prs)
 
         # ---- validating (with bounded retry) ----
         job_store.update(job_id, status=JobStatus.validating)
@@ -262,7 +263,7 @@ def run_segment_b(job_id: str) -> None:
                 # Recompose with the same plan — meaningful when the LLM Compose
                 # stage arrives; deterministic compose produces the same output
                 # each retry, standing up the loop structure for increment 3.
-                prs, compose_overflow = compose(parsed, plan, settings.assets_root, tmpl_prs)
+                prs, compose_overflow, infographic_indices = compose(parsed, plan, settings.assets_root, tmpl_prs)
             else:
                 retry_count = attempt
                 logger.info(
@@ -291,15 +292,17 @@ def run_segment_b(job_id: str) -> None:
             if i < len(orig_pngs) else ""
             for i in range(n)
         ]
+        # trans_pngs includes the appended closing slide (n+1 total), so use its
+        # actual length — not n — to generate preview URLs for every output slide.
         trans_urls = [
             f"/api/jobs/{job_id}/previews/transformed/slide-{i + 1}.png"
             if i < len(trans_pngs) else ""
-            for i in range(n)
+            for i in range(len(trans_pngs))
         ]
 
         elapsed = int(time.perf_counter() - t0)
 
-        # ---- build slide results ----
+        # ---- build slide results (one card per source slide) ----
         slides = build_slides(
             parsed,
             plan,
@@ -308,7 +311,23 @@ def run_segment_b(job_id: str) -> None:
             transformed_preview_urls=trans_urls,
             flagged_indices=flagged_indices if not gate_passed else None,
             retry_count=retry_count,
+            infographic_indices=infographic_indices,
         )
+
+        # ---- append a card for the brand closing slide (always added by composer) ----
+        closing_trans_url = trans_urls[n] if n < len(trans_urls) else ""
+        slides.append(TransformedSlide(
+            id=str(uuid.uuid4()),
+            index=n,
+            original_preview_url="",
+            transformed_preview_url=closing_trans_url,
+            content_unchanged=True,
+            restructure_note="Brand closing slide (appended)",
+            change_chips=["Added"],
+            approval=ApprovalState.pending,
+            retry_count=0,
+            theme_toggleable=False,
+        ))
 
         job_store.update(
             job_id,
@@ -316,6 +335,7 @@ def run_segment_b(job_id: str) -> None:
             pptx_path=pptx_path,
             pdf_path=pdf_path,
             processing_seconds=elapsed,
+            slide_count=len(slides),  # n+1 (source slides + closing)
             slides=slides,
             brand_compliance_passed=gate_passed,
             content_fidelity=fidelity_str,

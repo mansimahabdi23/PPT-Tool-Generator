@@ -1,10 +1,12 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
-import { useState, useCallback } from "react";
+import { useState, useCallback, useRef } from "react";
 import { toast } from "sonner";
 import {
   ArrowLeft,
+  FileText,
   Plus,
   Sparkles,
+  Upload,
   X,
 } from "lucide-react";
 
@@ -57,6 +59,9 @@ function CreatePage() {
   const [newMessage, setNewMessage] = useState("");
   const [slideCount, setSlideCount] = useState<number[]>([10]);
   const [tone, setTone] = useState("");
+  const [contentText, setContentText] = useState("");
+  const [contentFile, setContentFile] = useState<File | null>(null);
+  const contentFileRef = useRef<HTMLInputElement>(null);
 
   const showComingSoonToast = useCallback(() => {
     toast.info("Creating from scratch is coming soon. For now, upload an existing deck.");
@@ -169,6 +174,82 @@ function CreatePage() {
               }}
               rows={4}
             />
+          </div>
+
+          {/* Paste content */}
+          <div className="space-y-2">
+            <Label htmlFor="content-text">Paste your content</Label>
+            <Textarea
+              id="content-text"
+              placeholder="Paste text, notes, or an outline the deck should be built from…"
+              value={contentText}
+              onChange={(e) => setContentText(e.target.value)}
+              onClick={(e) => {
+                e.stopPropagation();
+                showComingSoonToast();
+              }}
+              rows={6}
+              className="resize-y"
+            />
+          </div>
+
+          {/* Upload .docx */}
+          <div className="space-y-2">
+            <Label>Or upload a document</Label>
+            <button
+              type="button"
+              onClick={(e) => {
+                e.stopPropagation();
+                showComingSoonToast();
+                contentFileRef.current?.click();
+              }}
+              className="flex w-full items-center gap-3 rounded-xl border border-dashed border-border bg-surface/50 px-4 py-3.5 text-left transition-colors hover:border-brand-orange/50 hover:bg-surface"
+            >
+              <span className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-white text-muted-foreground shadow-sm ring-1 ring-border">
+                <Upload className="h-4 w-4" />
+              </span>
+              <span className="min-w-0">
+                <span className="block text-sm font-medium text-ink">Click to browse</span>
+                <span className="text-xs text-muted-foreground">.docx only</span>
+              </span>
+            </button>
+            <input
+              ref={contentFileRef}
+              type="file"
+              accept=".docx,application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+              className="hidden"
+              onChange={(e) => {
+                const f = e.target.files?.[0];
+                if (f) setContentFile(f);
+                e.target.value = "";
+              }}
+            />
+            {contentFile && (
+              <div className="flex items-center justify-between rounded-xl border border-border bg-white p-3.5">
+                <div className="flex min-w-0 items-center gap-3">
+                  <div className="grid h-9 w-9 shrink-0 place-items-center rounded-lg bg-brand-orange/10 text-brand-orange">
+                    <FileText className="h-4 w-4" />
+                  </div>
+                  <div className="min-w-0">
+                    <div className="truncate text-sm font-medium text-ink">{contentFile.name}</div>
+                    <div className="text-xs text-muted-foreground">
+                      {(contentFile.size / 1024).toFixed(0)} KB
+                    </div>
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    setContentFile(null);
+                  }}
+                  className="rounded-md p-1.5 text-muted-foreground transition-colors hover:bg-surface hover:text-ink"
+                  aria-label="Remove file"
+                >
+                  <X className="h-4 w-4" />
+                </button>
+              </div>
+            )}
           </div>
 
           {/* Key messages */}
